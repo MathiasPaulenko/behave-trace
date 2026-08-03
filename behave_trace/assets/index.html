@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>behave-trace</title>
+    <link rel="stylesheet" href="/css/viewer.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body>
+    <div x-data="traceViewer()" x-init="init()" class="app">
+
+        <!-- ──────────── Header ──────────── -->
+        <header class="header">
+            <div class="header__brand">
+                <span class="header__logo">bt</span>
+                <span class="header__title">behave-trace</span>
+            </div>
+            <div class="header__stats">
+                <span class="badge badge--passed" x-text="stats.passed + ' passed'"></span>
+                <span class="badge badge--failed" x-text="stats.failed + ' failed'"></span>
+                <span class="badge badge--skipped" x-text="stats.skipped + ' skipped'"></span>
+                <span class="header__duration" x-text="formatDuration(stats.duration)"></span>
+            </div>
+        </header>
+
+        <!-- ──────────── Body ──────────── -->
+        <div class="body">
+
+            <!-- ───── Sidebar ───── -->
+            <aside class="sidebar">
+                <!-- Filters -->
+                <div class="sidebar__section">
+                    <h3 class="sidebar__heading">Filters</h3>
+                    <div class="filter-group">
+                        <label class="filter">
+                            <input type="radio" value="all" x-model="filter">
+                            <span>All</span>
+                        </label>
+                        <label class="filter">
+                            <input type="radio" value="failed" x-model="filter">
+                            <span class="filter--failed">Failed only</span>
+                        </label>
+                        <label class="filter">
+                            <input type="radio" value="slow" x-model="filter">
+                            <span>Slow (>500ms)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Tree -->
+                <div class="sidebar__section sidebar__tree">
+                    <h3 class="sidebar__heading">Scenarios</h3>
+                    <div class="tree">
+                        <template x-for="feature in filteredFeatures" :key="feature.name">
+                            <div class="tree__feature">
+                                <div
+                                    class="tree__feature-header"
+                                    @click="toggleFeature(feature)"
+                                    :class="{ 'tree__feature-header--open': feature._open }"
+                                >
+                                    <span class="tree__icon" x-text="feature._open ? '▾' : '▸'"></span>
+                                    <span
+                                        class="tree__status-dot"
+                                        :class="'status-dot--' + feature.status"
+                                    ></span>
+                                    <span class="tree__label" x-text="feature.name"></span>
+                                    <span class="tree__count" x-text="feature.scenarios.length"></span>
+                                </div>
+                                <div x-show="feature._open" class="tree__scenarios">
+                                    <template x-for="scenario in filteredScenarios(feature)" :key="scenario.name">
+                                        <div
+                                            class="tree__scenario"
+                                            @click="selectScenario(scenario)"
+                                            :class="{ 'tree__scenario--active': isActiveScenario(scenario) }"
+                                        >
+                                            <span
+                                                class="tree__status-dot"
+                                                :class="'status-dot--' + scenario.status"
+                                            ></span>
+                                            <span class="tree__label" x-text="scenario.name"></span>
+                                            <span class="tree__duration" x-text="formatDuration(scenario.duration)"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Stats summary -->
+                <div class="sidebar__section sidebar__stats">
+                    <h3 class="sidebar__heading">Stats</h3>
+                    <div class="stat-grid">
+                        <div class="stat">
+                            <span class="stat__value" x-text="stats.totalScenarios"></span>
+                            <span class="stat__label">scenarios</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat__value" x-text="stats.totalSteps"></span>
+                            <span class="stat__label">steps</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat__value" x-text="stats.totalScreenshots"></span>
+                            <span class="stat__label">screenshots</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat__value" x-text="formatDuration(stats.slowestStep)"></span>
+                            <span class="stat__label">slowest step</span>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- ───── Main ───── -->
+            <main class="main">
+
+                <!-- ───── Timeline (Playwright-style scrubable) ───── -->
+                <div class="timeline" x-show="currentScenario">
+                    <div class="timeline__bar" @click="seekTo($event)" ref="timelineBar">
+                        <template x-for="(step, idx) in currentScenario?.steps" :key="idx">
+                            <div
+                                class="timeline__segment"
+                                :class="'timeline__segment--' + step.status"
+                                :style="`width: ${segmentWidth(step)}%`"
+                                :title="step.keyword + ' ' + step.name + ' (' + formatDuration(step.duration) + ')'"
+                            ></div>
+                        </template>
+                        <div class="timeline__cursor" :style="`left: ${cursorPos}%`"></div>
+                    </div>
+                    <div class="timeline__labels">
+                        <span x-text="formatDuration(0)"></span>
+                        <span x-text="formatDuration(currentScenario?.duration || 0)"></span>
+                    </div>
+                </div>
+
+                <!-- ───── Step list + detail ───── -->
+                <div class="content" x-show="currentScenario">
+
+                    <!-- Step list (like Playwright's action list) -->
+                    <div class="step-list">
+                        <template x-for="(step, idx) in currentScenario?.steps" :key="idx">
+                            <div
+                                class="step-item"
+                                :class="[
+                                    'step-item--' + step.status,
+                                    { 'step-item--active': selectedStepIdx === idx }
+                                ]"
+                                @click="selectStep(idx)"
+                            >
+                                <span class="step-item__status" :class="'status-icon--' + step.status">
+                                    <template x-if="step.status === 'passed'">✓</template>
+                                    <template x-if="step.status === 'failed'">✕</template>
+                                    <template x-if="step.status === 'skipped'">○</template>
+                                    <template x-if="step.status === 'undefined'">?</template>
+                                </span>
+                                <span class="step-item__keyword" x-text="step.keyword"></span>
+                                <span class="step-item__name" x-text="step.name"></span>
+                                <span class="step-item__duration" x-text="formatDuration(step.duration)"></span>
+                                <span class="step-item__badges">
+                                    <template x-if="step.has_screenshot">
+                                        <span class="mini-badge" title="Screenshot">📷</span>
+                                    </template>
+                                    <template x-if="step.has_dom">
+                                        <span class="mini-badge" title="DOM">🌐</span>
+                                    </template>
+                                    <template x-if="step.logs.length > 0">
+                                        <span class="mini-badge" title="Logs">📝</span>
+                                    </template>
+                                    <template x-if="step.error">
+                                        <span class="mini-badge mini-badge--error" title="Error">⚠</span>
+                                    </template>
+                                </span>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- Step detail panel (Playwright-style tabs) -->
+                    <div class="step-detail" x-show="selectedStep">
+                        <div class="step-detail__header">
+                            <span
+                                class="step-detail__status"
+                                :class="'status-icon--' + selectedStep?.status"
+                                x-text="selectedStep?.status"
+                            ></span>
+                            <span class="step-detail__name">
+                                <span x-text="selectedStep?.keyword"></span>
+                                <span x-text="selectedStep?.name"></span>
+                            </span>
+                            <span class="step-detail__duration" x-text="formatDuration(selectedStep?.duration)"></span>
+                            <span class="step-detail__location" x-text="selectedStep?.location"></span>
+                        </div>
+
+                        <!-- Tabs (Playwright-style) -->
+                        <div class="tabs">
+                            <button
+                                class="tab"
+                                :class="{ 'tab--active': activeTab === 'screenshot' }"
+                                @click="activeTab = 'screenshot'"
+                                x-show="selectedStep?.has_screenshot"
+                            >Screenshot</button>
+                            <button
+                                class="tab"
+                                :class="{ 'tab--active': activeTab === 'snapshot' }"
+                                @click="activeTab = 'snapshot'"
+                                x-show="selectedStep?.has_dom"
+                            >Snapshot</button>
+                            <button
+                                class="tab"
+                                :class="{ 'tab--active': activeTab === 'source' }"
+                                @click="activeTab = 'source'"
+                                x-show="selectedStep?.location"
+                            >Source</button>
+                            <button
+                                class="tab"
+                                :class="{ 'tab--active': activeTab === 'console' }"
+                                @click="activeTab = 'console'"
+                                x-show="selectedStep?.logs.length > 0"
+                            >Console</button>
+                            <button
+                                class="tab"
+                                :class="{ 'tab--active': activeTab === 'error' }"
+                                @click="activeTab = 'error'"
+                                x-show="selectedStep?.error"
+                            >Error</button>
+                            <button
+                                class="tab"
+                                :class="{ 'tab--active': activeTab === 'artifacts' }"
+                                @click="activeTab = 'artifacts'"
+                                x-show="selectedStep?.artifacts.length > 0"
+                            >Artifacts</button>
+                        </div>
+
+                        <!-- Tab content -->
+                        <div class="tab-content">
+
+                            <!-- ─── Screenshot (full page at this step) ─── -->
+                            <div x-show="activeTab === 'screenshot'" class="screenshot-viewer">
+                                <template x-for="art in screenshotArtifacts(selectedStep)" :key="art.name">
+                                    <img
+                                        class="screenshot-viewer__img"
+                                        :src="'data:' + art.mime_type + ';base64,' + art.data_base64"
+                                        :alt="art.name"
+                                    />
+                                </template>
+                            </div>
+
+                            <!-- ─── Snapshot (DOM in iframe, like Playwright) ─── -->
+                            <div x-show="activeTab === 'snapshot'" class="snapshot-viewer">
+                                <!-- Before/After toggle (Playwright-style) -->
+                                <div class="snapshot-viewer__toolbar">
+                                    <div class="snapshot-viewer__toggle">
+                                        <button
+                                            class="snapshot-toggle__btn"
+                                            :class="{ 'snapshot-toggle__btn--active': snapshotMode === 'after' }"
+                                            @click="snapshotMode = 'after'"
+                                        >After step</button>
+                                        <button
+                                            class="snapshot-toggle__btn"
+                                            :class="{ 'snapshot-toggle__btn--active': snapshotMode === 'before' }"
+                                            @click="snapshotMode = 'before'"
+                                            x-show="hasBeforeSnapshot()"
+                                        >Before step</button>
+                                    </div>
+                                </div>
+                                <iframe
+                                    class="snapshot-viewer__frame"
+                                    :srcdoc="currentSnapshotHtml()"
+                                    sandbox="allow-same-origin"
+                                ></iframe>
+                            </div>
+
+                            <!-- ─── Source (step implementation code) ─── -->
+                            <div x-show="activeTab === 'source'" class="source-viewer">
+                                <div class="source-viewer__path" x-text="sourcePath()"></div>
+                                <pre class="source-viewer__code"><code x-text="sourceCode()"></code></pre>
+                            </div>
+
+                            <!-- ─── Console (filtered by step, Playwright-style) ─── -->
+                            <div x-show="activeTab === 'console'" class="console-viewer">
+                                <template x-for="(line, idx) in selectedStep?.logs" :key="idx">
+                                    <div class="console-line console-line--info">
+                                        <span class="console-line__level">INFO</span>
+                                        <span class="console-line__msg" x-text="typeof line === 'string' ? line : (line.message || line)"></span>
+                                    </div>
+                                </template>
+                                <div x-show="selectedStep?.logs.length === 0" class="console-viewer__empty">
+                                    No console output for this step.
+                                </div>
+                            </div>
+
+                            <!-- ─── Error ─── -->
+                            <div x-show="activeTab === 'error'" class="error-viewer">
+                                <div class="error-viewer__type" x-text="selectedStep?.error?.exception_type"></div>
+                                <pre class="error-viewer__message" x-text="selectedStep?.error?.message"></pre>
+                                <pre class="error-viewer__traceback" x-text="selectedStep?.error?.traceback"></pre>
+                            </div>
+
+                            <!-- ─── Artifacts ─── -->
+                            <div x-show="activeTab === 'artifacts'" class="artifact-list">
+                                <template x-for="art in selectedStep?.artifacts" :key="art.name">
+                                    <div class="artifact-item">
+                                        <span class="artifact-item__type" x-text="art.type"></span>
+                                        <span class="artifact-item__name" x-text="art.name"></span>
+                                        <span class="artifact-item__mime" x-text="art.mime_type"></span>
+                                        <a
+                                            class="artifact-item__download"
+                                            :href="'data:' + art.mime_type + ';base64,' + art.data_base64"
+                                            :download="art.name"
+                                        >Download</a>
+                                    </div>
+                                </template>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Empty state -->
+                <div class="empty-state" x-show="!currentScenario">
+                    <div class="empty-state__icon">bt</div>
+                    <h2 class="empty-state__title">Select a scenario</h2>
+                    <p class="empty-state__text">
+                        Choose a scenario from the sidebar to inspect its steps,
+                        screenshots, DOM snapshots, and logs.
+                    </p>
+                </div>
+
+            </main>
+        </div>
+
+        <!-- ──────────── Filmstrip (Playwright-style bottom strip) ──────────── -->
+        <div class="filmstrip" x-show="currentScenario && hasScreenshots">
+            <div class="filmstrip__scroll">
+                <template x-for="(step, idx) in currentScenario?.steps" :key="idx">
+                    <div
+                        class="filmstrip__item"
+                        :class="[
+                            'filmstrip__item--' + step.status,
+                            { 'filmstrip__item--active': selectedStepIdx === idx }
+                        ]"
+                        @click="selectStep(idx)"
+                        x-show="step.has_screenshot"
+                    >
+                        <img
+                            class="filmstrip__thumb"
+                            :src="thumbnailSrc(step)"
+                            :alt="step.name"
+                        />
+                        <span class="filmstrip__label" x-text="step.keyword + ' ' + step.name"></span>
+                        <span class="filmstrip__time" x-text="formatDuration(step.duration)"></span>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="/js/viewer.js"></script>
+</body>
+</html>
