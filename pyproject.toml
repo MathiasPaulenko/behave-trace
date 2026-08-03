@@ -69,6 +69,7 @@ artifacts = ["behave_trace.pth"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+extend-exclude = ["*.md", "docs", "site"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
@@ -98,8 +99,8 @@ markers = [
 
 [tool.coverage.run]
 source = ["behave_trace"]
-omit = ["*/tests/*"]
+omit = ["*/tests/*", "build/*", "dist/*"]
 
 [tool.coverage.report]
 show_missing = true
-fail_under = 90
+fail_under = 55

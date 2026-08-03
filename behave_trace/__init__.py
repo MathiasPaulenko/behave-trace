@@ -31,7 +31,7 @@ from .models import (
     TraceStats,
 )
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 # Register formatter with Behave's internal registry (Behave 1.3.x doesn't
 # auto-discover entry points — it uses a manual registry).

@@ -78,6 +78,20 @@ def _get_free_port() -> int:
         return s.getsockname()[1]
 
 
+def _wait_for_server(port: int, timeout: float = 10.0) -> None:
+    """Poll until the server responds or timeout expires."""
+    deadline = time.monotonic() + timeout
+    last_err: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/trace", timeout=2):
+                return
+        except Exception as exc:
+            last_err = exc
+            time.sleep(0.3)
+    raise TimeoutError(f"Server on port {port} did not respond within {timeout}s: {last_err}")
+
+
 # ---------------------------------------------------------------------------
 # --version
 # ---------------------------------------------------------------------------
@@ -90,7 +104,7 @@ class TestVersion:
         assert exc_info.value.code == 0
         captured = capsys.readouterr()
         assert "behave-trace" in captured.out
-        assert "0.1.0" in captured.out
+        assert "1.0.0" in captured.out
 
 
 # ---------------------------------------------------------------------------
@@ -142,18 +156,18 @@ class TestShowServer:
         )
 
         try:
-            # Wait for server to start
-            time.sleep(1.0)
+            # Wait for server to start (CI runners may be slow)
+            _wait_for_server(port, timeout=10)
 
             # Verify server responds
             url = f"http://127.0.0.1:{port}/api/trace"
-            with urllib.request.urlopen(url, timeout=5) as resp:
+            with urllib.request.urlopen(url, timeout=10) as resp:
                 assert resp.status == 200
                 data = json.loads(resp.read())
                 assert data["version"] == "1"
         finally:
             proc.terminate()
-            proc.wait(timeout=5)
+            proc.wait(timeout=10)
 
     def test_show_prints_summary_and_url(self, tmp_path: Path) -> None:
         """Verify the show command prints summary and viewer URL."""
@@ -181,7 +195,9 @@ class TestShowServer:
         )
 
         try:
-            time.sleep(1.5)
+            # Wait for server to start and print output
+            _wait_for_server(port, timeout=10)
+            time.sleep(0.5)
             # Read what's available so far
             import os
 
@@ -189,7 +205,7 @@ class TestShowServer:
             combined = proc.stdout.read() or ""
         finally:
             proc.terminate()
-            proc.wait(timeout=5)
+            proc.wait(timeout=10)
 
         assert "Features: 1" in combined
         assert "Scenarios: 2" in combined
@@ -218,9 +234,9 @@ class TestShowServer:
         )
 
         try:
-            time.sleep(1.0)
+            _wait_for_server(port, timeout=10)
             proc.terminate()
-            ret = proc.wait(timeout=5)
+            ret = proc.wait(timeout=10)
             # On Windows, terminate() sends SIGTERM equivalent
             # The process should exit without hanging
             assert ret is not None
@@ -253,15 +269,15 @@ class TestShowServer:
         )
 
         try:
-            time.sleep(1.0)
+            _wait_for_server(port, timeout=10)
             url = f"http://127.0.0.1:{port}/api/trace"
-            with urllib.request.urlopen(url, timeout=5) as resp:
+            with urllib.request.urlopen(url, timeout=10) as resp:
                 assert resp.status == 200
                 data = json.loads(resp.read())
                 assert data["features"] == []
         finally:
             proc.terminate()
-            proc.wait(timeout=5)
+            proc.wait(timeout=10)
 
 
 # ---------------------------------------------------------------------------
