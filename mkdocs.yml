@@ -1,0 +1,83 @@
+site_name: behave-trace
+site_description: Trace viewer and step-by-step debugger for Behave BDD.
+site_author: Mathias Paulenko
+site_url: https://mathiaspaulenko.github.io/behave-trace/
+repo_url: https://github.com/MathiasPaulenko/behave-trace
+repo_name: MathiasPaulenko/behave-trace
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.indexes
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/github
+
+nav:
+  - Home: index.md
+  - Guide:
+      - Installation: installation.md
+      - Quick Start: quickstart.md
+      - CLI: cli.md
+      - Attachments: attachments.md
+  - Reference:
+      - Python API: python-api.md
+      - Architecture: architecture.md
+      - Changelog: changelog.md
+  - Contributing: contributing.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: true
+            show_root_heading: true
+            show_signature_annotations: true
+            separate_signature: true
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            docstring_style: google
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - tables
+  - toc:
+      permalink: true
+  - attr_list
+  - md_in_html
+  - def_list
+  - footnotes
