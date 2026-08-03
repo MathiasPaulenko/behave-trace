@@ -1,0 +1,56 @@
+name: Bug report
+description: Report a bug or unexpected behavior
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear description of the bug.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Steps to reproduce the behavior.
+      value: |
+        1. Run `behave --format behave-trace -o trace.json ...`
+        2. Run `behave-trace show trace.json`
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: behave-trace version
+      description: Output of `behave-trace --version`
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+    validations:
+      required: true
+  - type: textarea
+    id: trace
+    attributes:
+      label: Trace JSON (if applicable)
+      description: Attach the trace.json file or paste relevant content.
+    validations:
+      required: false
