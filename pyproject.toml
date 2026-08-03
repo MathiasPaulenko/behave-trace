@@ -1,0 +1,105 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "behave-trace"
+version = "1.0.0"
+description = "Trace viewer and step-by-step debugger for Behave BDD."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [
+    { name = "Mathias Paulenko" },
+]
+keywords = ["behave", "bdd", "trace", "viewer", "debugger", "playwright"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Testing :: BDD",
+    "Typing :: Typed",
+]
+dependencies = [
+    "behave>=1.2.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-timeout>=2.0",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "build>=1.0",
+    "pre-commit>=3.0",
+]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.24",
+]
+
+[project.urls]
+Homepage = "https://github.com/MathiasPaulenko/behave-trace"
+Repository = "https://github.com/MathiasPaulenko/behave-trace"
+Issues = "https://github.com/MathiasPaulenko/behave-trace/issues"
+Changelog = "https://github.com/MathiasPaulenko/behave-trace/blob/main/CHANGELOG.md"
+
+[project.scripts]
+behave-trace = "behave_trace.__main__:main"
+
+[project.entry-points."behave.formatters"]
+behave-trace = "behave_trace.formatter:TraceFormatter"
+
+[tool.hatch.build.targets.wheel]
+packages = ["behave_trace"]
+artifacts = ["behave_trace.pth"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"behave_trace.pth" = "behave_trace.pth"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["behave_trace"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+strict = true
+warn_return_any = true
+python_version = "3.11"
+
+[[tool.mypy.overrides]]
+module = ["behave", "behave.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: marks tests that run Behave end-to-end (may be slow)",
+]
+
+[tool.coverage.run]
+source = ["behave_trace"]
+omit = ["*/tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 90

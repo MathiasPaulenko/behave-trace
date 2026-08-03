@@ -17,3 +17,8 @@ htmlcov/
 .coverage
 .coverage.*
 bin/
+tmp-clean-venv/
+tmp-e2e/
+examples/*/trace.json
+site/
+ref/
