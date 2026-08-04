@@ -99,15 +99,16 @@ class BehaveRunner:
         # is not installed (e.g. running from source), we inject the project
         # root into PYTHONPATH so the formatter registration in behave.ini works.
         env = None
-        project_root = Path(__file__).resolve().parent.parent
-        if not (project_root / "behave_trace" / "__init__.py").exists():
-            project_root = None
-        if project_root:
+        candidate_root = Path(__file__).resolve().parent.parent
+        if (candidate_root / "behave_trace" / "__init__.py").exists():
             import os
 
             env = os.environ.copy()
             existing = env.get("PYTHONPATH", "")
-            env["PYTHONPATH"] = f"{project_root}{os.pathsep}{existing}" if existing else str(project_root)
+            if existing:
+                env["PYTHONPATH"] = f"{candidate_root}{os.pathsep}{existing}"
+            else:
+                env["PYTHONPATH"] = str(candidate_root)
 
         result = subprocess.run(
             cmd,

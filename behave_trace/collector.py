@@ -149,9 +149,7 @@ class Collector:
         if self._current_feature is None:
             return
         self._current_feature.status = normalize_status(getattr(behave_feature, "status", None))
-        self._current_feature.duration = safe_float(
-            getattr(behave_feature, "duration", 0.0) or 0.0
-        )
+        self._current_feature.duration = safe_float(getattr(behave_feature, "duration", 0.0) or 0.0)
         self._current_feature = None
         self._current_rule_name = ""
 

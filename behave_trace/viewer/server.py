@@ -191,9 +191,7 @@ class ViewerServer:
                     return
 
                 if not isinstance(payload, dict):
-                    self._send_json_response(
-                        {"error": "Expected JSON object"}, status=400
-                    )
+                    self._send_json_response({"error": "Expected JSON object"}, status=400)
                     return
 
                 filter_type = payload.get("filter", "all")

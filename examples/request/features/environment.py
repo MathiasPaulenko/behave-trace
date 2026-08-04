@@ -4,7 +4,7 @@ Demonstrates how behave-trace captures network artifacts from
 ``requests`` library responses.
 """
 
-from behave_trace import attach_network, log
+from behave_trace import log
 
 
 def before_scenario(context, scenario):

@@ -111,7 +111,7 @@ class TestVersion:
         assert exc_info.value.code == 0
         captured = capsys.readouterr()
         assert "behave-trace" in captured.out
-        assert "1.0.0" in captured.out
+        assert "1.1.0" in captured.out
 
 
 # ---------------------------------------------------------------------------

@@ -7,12 +7,13 @@ network artifact so it appears in the behave-trace viewer's Network tab.
 import json
 
 from behave import given, then, when
-from behave_trace import attach_network, attach_text, log
 
+from behave_trace import attach_network, attach_text, log
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _attach_response(context, response, name="response"):
     """Attach a requests.Response as a network artifact."""
@@ -39,6 +40,7 @@ def _attach_response(context, response, name="response"):
 # Given
 # ---------------------------------------------------------------------------
 
+
 @given("I have a PokeAPI client")
 def step_have_client(context):
     assert context.session is not None, "API session not initialized"
@@ -48,6 +50,7 @@ def step_have_client(context):
 # ---------------------------------------------------------------------------
 # When
 # ---------------------------------------------------------------------------
+
 
 @when('I request pokemon "{name}"')
 def step_request_pokemon(context, name):
@@ -76,6 +79,7 @@ def step_request_ability(context, name):
 # ---------------------------------------------------------------------------
 # Then
 # ---------------------------------------------------------------------------
+
 
 @then("the response status should be {status:d}")
 def step_check_status(context, status):

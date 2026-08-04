@@ -846,7 +846,7 @@ class TestRerun:
         try:
             req = urllib.request.Request(
                 f"{server.url}/api/rerun",
-                data=b'[1, 2, 3]',
+                data=b"[1, 2, 3]",
                 method="POST",
             )
             req.add_header("Content-Type", "application/json")
