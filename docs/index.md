@@ -38,6 +38,13 @@ not *why*. behave-trace gives you:
   the viewer, with optional `--watch` mode for automatic re-execution.
 - **Fully typed** — `mypy --strict` clean, `py.typed` marker included.
 - **Minimal runtime dependencies** — only `behave`.
+- **Visual DOM diff** — compare before/after DOM snapshots and see added/removed
+  elements highlighted in split, diff, or before/after view modes.
+- **Feature tree controls** — collapse/expand all or sort scenarios by name, duration,
+  or status.
+- **Breadcrumb navigation** — "Feature > Scenario" path in the detail panel.
+- **Live progress** — Server-Sent Events stream updates while running Behave from the UI.
+- **Persistent UI state** — sort order and viewer toggles saved in `localStorage`.
 
 ## Quick example
 

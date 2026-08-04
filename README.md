@@ -9,8 +9,8 @@
 Trace viewer and step-by-step debugger for [Behave](https://github.com/behave/behave) BDD.
 
 Captures execution data (steps, statuses, durations, screenshots, DOM snapshots, logs)
-and visualizes them in a Playwright-inspired web viewer with timeline, filmstrip, and
-per-step detail tabs.
+and visualizes them in a Playwright-inspired web viewer with timeline, filmstrip,
+per-step detail tabs, before/after DOM diff, and live progress updates.
 
 ## Quickstart
 
@@ -58,6 +58,20 @@ SPA showing features, scenarios, steps, screenshots, and errors.
 
 2. **Visualize** — `behave-trace show` loads the trace JSON, starts a local HTTP
    server (stdlib only, no dependencies), and opens the viewer SPA in a browser.
+
+## Viewer features
+
+- **Visual DOM diff** — compare before/after DOM snapshots with added and removed
+  elements highlighted in split, diff, or before/after view modes.
+- **Collapse/Expand all** — expand or collapse the entire feature tree with one click.
+- **Scenario sorting** — sort scenarios by name, duration, or status; the selected
+  sort is persisted in `localStorage`.
+- **Feature → Scenario breadcrumb** — shows the current feature and scenario above
+  the step list; clicking the feature opens it in the sidebar.
+- **Live progress** — real-time status updates via Server-Sent Events while tests
+  are running from the viewer.
+- **Theme and state persistence** — sidebar, sort, and snapshot diff mode are
+  remembered across sessions.
 
 ## Capturing attachments
 

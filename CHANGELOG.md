@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 1.2.1 — 2026-08-04
+
+### Fixed
+
+- `ruff format` issues in `behave_trace/collector.py` and `behave_trace/viewer/server.py`.
+- `tests/test_cli.py::TestRunExceptionSafety` now avoids hanging on `signal.pause()` on Linux.
+
+## 1.2.0 — 2026-08-04
+
+### Added
+
+- **Live progress** updates via Server-Sent Events while running Behave from the viewer.
+- **Visual DOM diff** with before/after snapshots and highlighted added/removed elements.
+- **Collapse/Expand all** buttons for the feature tree.
+- **Scenario sorting** by name, duration, or status with persistence in `localStorage`.
+- **Feature → Scenario breadcrumb** with clickable feature in the detail panel.
+- Filter counters, timeline hover preview, and other UI polish.
+
 ## 1.0.0 — 2025-08-03
 
 ### Added

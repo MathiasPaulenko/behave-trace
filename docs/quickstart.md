@@ -42,6 +42,12 @@ The viewer opens in your browser at `http://127.0.0.1:<port>` with:
 - **Timeline** — colored segments per step (green = passed, red = failed).
 - **Filmstrip** — screenshots captured during execution.
 - **Detail tabs** — Steps, Screenshots, Snapshot (DOM), Console (logs), Error.
+- **DOM snapshot diff** — switch between before/after, split, and diff views with
+  added/removed elements highlighted.
+- **Feature tree** — collapse/expand all or sort scenarios by name, duration, or status.
+- **Breadcrumb** — "Feature > Scenario" path above the step list; click the feature to
+  locate it in the sidebar.
+- **Live progress** — updates stream in real time while running Behave from the viewer.
 - **Stats** — feature/scenario/step counts, pass/fail breakdown.
 
 ### One-step alternative: `behave-trace run`
