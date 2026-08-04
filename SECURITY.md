@@ -1,5 +1,15 @@
 # Security Policy
 
+## Supported versions
+
+behave-trace follows semantic versioning. Security fixes are applied
+to the latest released version only.
+
+| Version | Supported          |
+| ------- | ------------------ |
+| 1.0.x   | :white_check_mark: |
+| < 1.0   | :x:                |
+
 ## Reporting a Vulnerability
 
 If you discover a security vulnerability in behave-trace, please report it

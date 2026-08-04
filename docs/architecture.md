@@ -45,9 +45,21 @@ properties (e.g. `has_screenshot`, `passed_steps`, `overall_status`).
 
 ### Attach (`attach.py`)
 
-Helper functions (`attach_screenshot`, `attach_dom`, `log`) that find the
-active `TraceFormatter` instance and enqueue artifacts. The formatter picks
-them up on the next event.
+Helper functions (`attach_screenshot`, `attach_dom`, `attach_text`,
+`attach_network`, `log`) that find the active `TraceFormatter` instance and
+enqueue artifacts. The formatter picks them up on the next event.
+
+### Runner (`runner.py`)
+
+`BehaveRunner` executes Behave as a subprocess with the trace formatter,
+then loads the resulting trace JSON. Used by the `behave-trace run` CLI
+subcommand.
+
+### Watcher (`watcher.py`)
+
+`FileWatcher` monitors `.feature` and `.py` files for changes, debounces
+events, and triggers a callback. Uses `watchdog` when available, falls back
+to polling. Powers the `--watch` mode.
 
 ### Viewer (`viewer/`)
 
@@ -63,8 +75,13 @@ them up on the next event.
 
 ### CLI (`cli/`)
 
-`app.py` uses `argparse` with a `show` subcommand. It loads the trace JSON,
-starts the HTTP server, and opens the browser.
+`app.py` uses `argparse` with two subcommands:
+
+- **`show`** — loads a trace JSON file, starts the HTTP server, and opens
+  the browser.
+- **`run`** — executes Behave with the trace formatter, loads the result,
+  and opens the viewer. Supports `--watch` for automatic re-execution on
+  file changes.
 
 ## Data flow
 
@@ -86,19 +103,26 @@ save_trace() (serializer.py)
      ▼
 trace.json
      │
-     ▼
-behave-trace show (cli/app.py)
+     ├──── behave-trace show (cli/app.py)
+     │         │
+     │         ▼
+     │    HTTP server (viewer/server.py)
+     │         │
+     │         ▼
+     │    Browser SPA (assets/index.html)
      │
-     ▼
-HTTP server (viewer/server.py)
-     │
-     ▼
-Browser SPA (assets/index.html)
+     └──── behave-trace run (cli/app.py)
+               │
+               ▼
+          BehaveRunner (runner.py)
+               │
+               ▼
+          trace.json → HTTP server → Browser SPA
 ```
 
 ## Formatter registration
 
-Behave 1.3.x does not auto-discover formatter entry points. behave-trace
-ships a `.pth` file (`behave_trace.pth`) that imports `behave_trace` on
-Python startup, which triggers manual registration of `TraceFormatter`
-with Behave's internal formatter registry.
+The formatter is registered via the `behave.formatters` entry point in
+`pyproject.toml`. Additionally, `behave_trace/__init__.py` attempts manual
+registration with Behave's internal formatter registry for compatibility
+with Behave 1.3.x, which does not auto-discover entry points.

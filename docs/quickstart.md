@@ -12,7 +12,7 @@ behave --format behave-trace -o trace.json
 
 behave-trace will:
 
-1. Register the `TraceFormatter` as a Behave formatter (via `.pth` auto-import).
+1. Register the `TraceFormatter` as a Behave formatter (via entry point).
 2. Collect execution events: features, scenarios, steps, statuses, durations.
 3. Capture attachments (screenshots, DOM, logs) from your `environment.py`.
 4. Serialize the trace to `trace.json` when the test run completes.
@@ -43,6 +43,17 @@ The viewer opens in your browser at `http://127.0.0.1:<port>` with:
 - **Filmstrip** — screenshots captured during execution.
 - **Detail tabs** — Steps, Screenshots, Snapshot (DOM), Console (logs), Error.
 - **Stats** — feature/scenario/step counts, pass/fail breakdown.
+
+### One-step alternative: `behave-trace run`
+
+You can also capture and visualize in a single step:
+
+```bash
+behave-trace run features/
+```
+
+This runs Behave with the trace formatter, then opens the viewer automatically.
+Add `--watch` to re-run on file changes.
 
 ## Capture attachments
 
@@ -78,3 +89,5 @@ scenario (division by zero).
 - [CLI](cli.md) — every command, flag, and option.
 - [Attachments](attachments.md) — screenshots, DOM snapshots, and logs.
 - [Python API](python-api.md) — use behave-trace as a library.
+- [Architecture](architecture.md) — internal design and data flow.
+- [Contributing](contributing.md) — how to contribute.

@@ -28,11 +28,14 @@ not *why*. behave-trace gives you:
   visualize afterwards.
 - **TraceFormatter** — a Behave formatter that collects execution events into a
   structured `Trace` data model.
-- **Attachment helpers** — `attach_screenshot()`, `attach_dom()`, and `log()`
-  for capturing debugging artifacts in `environment.py`.
+- **Attachment helpers** — `attach_screenshot()`, `attach_dom()`,
+  `attach_text()`, `attach_network()`, and `log()` for capturing debugging
+  artifacts in `environment.py`.
 - **Web viewer** — a dark-themed SPA (Alpine.js) served via a local HTTP
   server, with timeline, filmstrip, and detail tabs.
 - **CLI** — `behave-trace show trace.json` opens the viewer in your browser.
+  `behave-trace run features/` executes Behave with the formatter and opens
+  the viewer, with optional `--watch` mode for automatic re-execution.
 - **Fully typed** — `mypy --strict` clean, `py.typed` marker included.
 - **Minimal runtime dependencies** — only `behave`.
 
@@ -72,6 +75,8 @@ dark-themed SPA showing features, scenarios, steps, screenshots, and errors.
 
 2. **Visualize** — `behave-trace show` loads the trace JSON, starts a local
    HTTP server (stdlib only), and opens the viewer SPA in a browser.
+   Alternatively, `behave-trace run` combines both steps: it executes Behave
+   with the formatter and opens the viewer automatically.
 
 ## Next steps
 
@@ -81,3 +86,5 @@ dark-themed SPA showing features, scenarios, steps, screenshots, and errors.
 - [Attachments](attachments.md) — screenshots, DOM snapshots, and logs.
 - [Python API](python-api.md) — use behave-trace as a library.
 - [Architecture](architecture.md) — internal design and data flow.
+- [Changelog](changelog.md) — release history.
+- [Contributing](contributing.md) — how to contribute.

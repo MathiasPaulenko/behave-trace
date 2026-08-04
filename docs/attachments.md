@@ -9,7 +9,7 @@ displayed in the viewer's detail tabs.
 Import from `behave_trace` in your `environment.py`:
 
 ```python
-from behave_trace import attach_screenshot, attach_dom, log
+from behave_trace import attach_screenshot, attach_dom, attach_text, attach_network, log
 ```
 
 ### `attach_screenshot(context, data, name)`
@@ -46,7 +46,37 @@ def after_step(context, step):
 
 The viewer renders the HTML in the Snapshot tab with before/after toggling.
 
-### `log(context, message)`
+### `attach_text(context, text, name)`
+
+Attach a plain text snippet to the current step.
+
+| Parameter  | Type             | Description                                  |
+| ---------- | ---------------- | -------------------------------------------- |
+| `context`  | `RuleContext`    | Behave's context object.                     |
+| `text`     | `str`            | Text content to attach.                      |
+| `name`     | `str`            | Filename (e.g. `"note.txt"`).                |
+
+```python
+def after_step(context, step):
+    attach_text(context, f"Step {step.name} completed", name="note.txt")
+```
+
+### `attach_network(context, request_data, name)`
+
+Attach an HTTP request/response as a network artifact to the current step.
+
+| Parameter      | Type             | Description                                  |
+| -------------- | ---------------- | -------------------------------------------- |
+| `context`      | `RuleContext`    | Behave's context object.                     |
+| `request_data` | `Any`            | Dict, Playwright Request/Response, or Selenium log entry. |
+| `name`         | `str`            | Artifact name (default: `"network"`).        |
+
+```python
+def after_step(context, step):
+    attach_network(context, context.response, name="api_call")
+```
+
+### `log(context, message, level)`
 
 Attach a log line to the current step.
 
@@ -54,6 +84,7 @@ Attach a log line to the current step.
 | ---------- | ---------------- | -------------------------------------------- |
 | `context`  | `RuleContext`    | Behave's context object.                     |
 | `message`  | `str`            | Log message text.                            |
+| `level`    | `str`            | Log level: `"info"`, `"warning"`, or `"error"` (default: `"info"`). |
 
 ```python
 def after_step(context, step):
@@ -66,7 +97,7 @@ The viewer shows log lines in the Console tab.
 
 ```python
 # features/environment.py
-from behave_trace import attach_screenshot, attach_dom, log
+from behave_trace import attach_screenshot, attach_dom, attach_text, log
 
 def after_step(context, step):
     # Always log the current URL
@@ -75,10 +106,11 @@ def after_step(context, step):
     # Capture screenshot after every step
     attach_screenshot(context, context.driver.get_screenshot_as_png(), name=f"{step.name}.png")
 
-    # On failure, also capture DOM
+    # On failure, also capture DOM and error context
     if step.status == "failed":
         attach_dom(context, context.driver.page_source, name="failure_dom.html")
-        log(context, f"Step failed: {step.name}")
+        attach_text(context, str(step.error), name="error.txt")
+        log(context, f"Step failed: {step.name}", level="error")
 ```
 
 ## How attachments work
@@ -88,11 +120,11 @@ Attachments are stored as `Artifact` objects in the trace model:
 ```python
 @dataclass(slots=True)
 class Artifact:
-    type: str           # "screenshot" or "dom"
+    type: str           # "screenshot", "dom", "text", "network", or "log"
     name: str           # filename
     mime_type: str      # e.g. "image/png", "text/html"
     data_base64: str    # base64-encoded data
-    text: str | None    # text content (for DOM snapshots)
+    text: str | None    # text content (for DOM/text/network artifacts)
 ```
 
 The formatter collects artifacts during execution and serializes them into

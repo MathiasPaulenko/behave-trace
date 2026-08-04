@@ -15,6 +15,7 @@ print(behave_trace.__version__)
 ::: behave_trace.attach_screenshot
 ::: behave_trace.attach_dom
 ::: behave_trace.attach_text
+::: behave_trace.attach_network
 ::: behave_trace.log
 
 ## Trace model
@@ -28,3 +29,13 @@ print(behave_trace.__version__)
 ## Serializer
 
 ::: behave_trace.serializer.Serializer
+
+## Runner
+
+::: behave_trace.runner.BehaveRunner
+::: behave_trace.runner.RunResult
+
+## Viewer
+
+::: behave_trace.viewer.server.ViewerServer
+::: behave_trace.viewer.browser.open_app
