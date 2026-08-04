@@ -29,6 +29,30 @@ from .models import (
     TraceStats,
     as_dict,
 )
+from .utils import safe_float
+
+
+def _as_list(value: Any) -> list[Any]:
+    """Return *value* if it is a list, otherwise an empty list."""
+    return value if isinstance(value, list) else []
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    """Return *value* if it is a dict, otherwise an empty dict."""
+    return value if isinstance(value, dict) else {}
+
+
+def _as_str(value: Any) -> str:
+    """Return *value* as a string, or empty string if falsy."""
+    return str(value) if value else ""
+
+
+def _as_int(value: Any, fallback: int = 0) -> int:
+    """Return *value* as an int, or *fallback* if conversion fails."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
 
 
 class Serializer:
@@ -64,30 +88,35 @@ class Serializer:
         Raises:
             FileNotFoundError: If the file does not exist.
             json.JSONDecodeError: If the file is not valid JSON.
+            ValueError: If the JSON root is not a JSON object.
         """
         p = Path(path)
         if not p.exists():
             raise FileNotFoundError(f"Trace file not found: {p}")
-        data: dict[str, Any] = json.loads(p.read_text(encoding="utf-8"))
+        data = json.loads(p.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected JSON object at root, got {type(data).__name__}")
         return Serializer._from_dict(data)
 
     @staticmethod
     def _from_dict(data: dict[str, Any]) -> Trace:
         """Reconstruct a Trace from a plain dict."""
         trace = Trace(
-            version=data.get("version", "1"),
+            version=data.get("version") or "1",
             features=[],
         )
         created = data.get("created_at")
-        if created:
+        if isinstance(created, str):
             with contextlib.suppress(ValueError):
                 trace.created_at = datetime.fromisoformat(created)
-        for f_data in data.get("features", []):
+        for f_data in _as_list(data.get("features")):
+            if not isinstance(f_data, dict):
+                continue
             feature = _feature_from_dict(f_data)
             trace.features.append(feature)
-        env_data = data.get("environment", {})
+        env_data = _as_dict(data.get("environment"))
         trace.environment = _environment_from_dict(env_data)
-        stats_data = data.get("stats", {})
+        stats_data = _as_dict(data.get("stats"))
         trace.stats = _stats_from_dict(stats_data)
         return trace
 
@@ -100,17 +129,19 @@ class Serializer:
 def _feature_from_dict(data: dict[str, Any]) -> Feature:
     """Reconstruct a Feature from a dict."""
     feature = Feature(
-        name=data.get("name", ""),
-        status=data.get("status", "untested"),
-        duration=data.get("duration", 0.0),
-        description=data.get("description", ""),
-        location=data.get("location", ""),
-        tags=data.get("tags", []),
+        name=data.get("name") or "",
+        status=data.get("status") or "untested",
+        duration=safe_float(data.get("duration") or 0.0),
+        description=data.get("description") or "",
+        location=data.get("location") or "",
+        tags=_as_list(data.get("tags")),
     )
-    for s_data in data.get("scenarios", []):
+    for s_data in _as_list(data.get("scenarios")):
+        if not isinstance(s_data, dict):
+            continue
         feature.scenarios.append(_scenario_from_dict(s_data))
     bg_data = data.get("background")
-    if bg_data:
+    if isinstance(bg_data, dict):
         feature.background = _background_from_dict(bg_data)
     return feature
 
@@ -118,58 +149,68 @@ def _feature_from_dict(data: dict[str, Any]) -> Feature:
 def _scenario_from_dict(data: dict[str, Any]) -> Scenario:
     """Reconstruct a Scenario from a dict."""
     scenario = Scenario(
-        name=data.get("name", ""),
-        status=data.get("status", "untested"),
-        duration=data.get("duration", 0.0),
-        description=data.get("description", ""),
-        location=data.get("location", ""),
-        tags=data.get("tags", []),
-        feature_name=data.get("feature_name", ""),
-        rule_name=data.get("rule_name", ""),
-        is_outline=data.get("is_outline", False),
-        outline_name=data.get("outline_name", ""),
+        name=data.get("name") or "",
+        status=data.get("status") or "untested",
+        duration=safe_float(data.get("duration") or 0.0),
+        description=data.get("description") or "",
+        location=data.get("location") or "",
+        tags=_as_list(data.get("tags")),
+        feature_name=_as_str(data.get("feature_name")),
+        rule_name=_as_str(data.get("rule_name")),
+        is_outline=bool(data.get("is_outline")),
+        outline_name=_as_str(data.get("outline_name")),
     )
-    for step_data in data.get("steps", []):
+    for step_data in _as_list(data.get("steps")):
+        if not isinstance(step_data, dict):
+            continue
         scenario.steps.append(_step_from_dict(step_data))
     bg_data = data.get("background")
-    if bg_data:
+    if isinstance(bg_data, dict):
         scenario.background = _background_from_dict(bg_data)
+    examples_data = data.get("examples")
+    if isinstance(examples_data, dict):
+        scenario.examples = DataTable(
+            headings=_as_list(examples_data.get("headings")),
+            rows=_as_list(examples_data.get("rows")),
+        )
     return scenario
 
 
 def _step_from_dict(data: dict[str, Any]) -> Step:
     """Reconstruct a Step from a dict."""
     step = Step(
-        keyword=data.get("keyword", ""),
-        name=data.get("name", ""),
-        status=data.get("status", "untested"),
-        duration=data.get("duration", 0.0),
-        location=data.get("location", ""),
+        keyword=data.get("keyword") or "",
+        name=data.get("name") or "",
+        status=data.get("status") or "untested",
+        duration=safe_float(data.get("duration") or 0.0),
+        location=data.get("location") or "",
         text=data.get("text"),
-        logs=data.get("logs", []),
+        logs=_as_list(data.get("logs")),
     )
-    for a_data in data.get("artifacts", []):
+    for a_data in _as_list(data.get("artifacts")):
+        if not isinstance(a_data, dict):
+            continue
         step.artifacts.append(
             Artifact(
-                type=a_data.get("type", "text"),
-                name=a_data.get("name", ""),
-                mime_type=a_data.get("mime_type", "application/octet-stream"),
-                data_base64=a_data.get("data_base64", ""),
+                type=a_data.get("type") or "text",
+                name=a_data.get("name") or "",
+                mime_type=a_data.get("mime_type") or "application/octet-stream",
+                data_base64=a_data.get("data_base64") or "",
                 text=a_data.get("text"),
             )
         )
     err_data = data.get("error")
-    if err_data:
+    if isinstance(err_data, dict):
         step.error = ErrorInfo(
-            message=err_data.get("message", ""),
-            traceback=err_data.get("traceback", ""),
-            exception_type=err_data.get("exception_type", ""),
+            message=err_data.get("message") or "",
+            traceback=err_data.get("traceback") or "",
+            exception_type=err_data.get("exception_type") or "",
         )
     table_data = data.get("table")
-    if table_data:
+    if isinstance(table_data, dict):
         step.table = DataTable(
-            headings=table_data.get("headings", []),
-            rows=table_data.get("rows", []),
+            headings=_as_list(table_data.get("headings")),
+            rows=_as_list(table_data.get("rows")),
         )
     return step
 
@@ -177,11 +218,13 @@ def _step_from_dict(data: dict[str, Any]) -> Step:
 def _background_from_dict(data: dict[str, Any]) -> Background:
     """Reconstruct a Background from a dict."""
     bg = Background(
-        name=data.get("name", ""),
-        keyword=data.get("keyword", "Background"),
-        location=data.get("location", ""),
+        name=data.get("name") or "",
+        keyword=data.get("keyword") or "Background",
+        location=data.get("location") or "",
     )
-    for step_data in data.get("steps", []):
+    for step_data in _as_list(data.get("steps")):
+        if not isinstance(step_data, dict):
+            continue
         bg.steps.append(_step_from_dict(step_data))
     return bg
 
@@ -189,44 +232,44 @@ def _background_from_dict(data: dict[str, Any]) -> Background:
 def _environment_from_dict(data: dict[str, Any]) -> Environment:
     """Reconstruct an Environment from a dict."""
     return Environment(
-        python_version=data.get("python_version", ""),
-        behave_version=data.get("behave_version", ""),
-        behave_trace_version=data.get("behave_trace_version", ""),
-        platform=data.get("platform", ""),
-        hostname=data.get("hostname", ""),
-        cwd=data.get("cwd", ""),
-        command=data.get("command", ""),
-        user=data.get("user", ""),
-        cpu_count=data.get("cpu_count", 0),
-        memory_mb=data.get("memory_mb", 0),
-        git_branch=data.get("git_branch", ""),
-        git_commit=data.get("git_commit", ""),
-        git_remote=data.get("git_remote", ""),
-        env_vars=data.get("env_vars", {}),
+        python_version=data.get("python_version") or "",
+        behave_version=data.get("behave_version") or "",
+        behave_trace_version=data.get("behave_trace_version") or "",
+        platform=data.get("platform") or "",
+        hostname=data.get("hostname") or "",
+        cwd=data.get("cwd") or "",
+        command=data.get("command") or "",
+        user=data.get("user") or "",
+        cpu_count=_as_int(data.get("cpu_count")),
+        memory_mb=_as_int(data.get("memory_mb")),
+        git_branch=data.get("git_branch") or "",
+        git_commit=data.get("git_commit") or "",
+        git_remote=data.get("git_remote") or "",
+        env_vars=_as_dict(data.get("env_vars")),
     )
 
 
 def _stats_from_dict(data: dict[str, Any]) -> TraceStats:
     """Reconstruct TraceStats from a dict."""
     stats = TraceStats(
-        total_features=data.get("total_features", 0),
-        total_scenarios=data.get("total_scenarios", 0),
-        total_steps=data.get("total_steps", 0),
-        by_status=data.get("by_status", {}),
-        duration=data.get("duration", 0.0),
-        total_artifacts=data.get("total_artifacts", 0),
-        total_screenshots=data.get("total_screenshots", 0),
-        total_logs=data.get("total_logs", 0),
-        slowest_step_duration=data.get("slowest_step_duration", 0.0),
-        slowest_step_name=data.get("slowest_step_name", ""),
-        avg_step_duration=data.get("avg_step_duration", 0.0),
+        total_features=_as_int(data.get("total_features")),
+        total_scenarios=_as_int(data.get("total_scenarios")),
+        total_steps=_as_int(data.get("total_steps")),
+        by_status=_as_dict(data.get("by_status")),
+        duration=safe_float(data.get("duration") or 0.0),
+        total_artifacts=_as_int(data.get("total_artifacts")),
+        total_screenshots=_as_int(data.get("total_screenshots")),
+        total_logs=_as_int(data.get("total_logs")),
+        slowest_step_duration=safe_float(data.get("slowest_step_duration") or 0.0),
+        slowest_step_name=data.get("slowest_step_name") or "",
+        avg_step_duration=safe_float(data.get("avg_step_duration") or 0.0),
     )
     start = data.get("start_time")
-    if start:
+    if isinstance(start, str):
         with contextlib.suppress(ValueError):
             stats.start_time = datetime.fromisoformat(start)
     end = data.get("end_time")
-    if end:
+    if isinstance(end, str):
         with contextlib.suppress(ValueError):
             stats.end_time = datetime.fromisoformat(end)
     return stats
