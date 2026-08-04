@@ -111,7 +111,7 @@ class TestVersion:
         assert exc_info.value.code == 0
         captured = capsys.readouterr()
         assert "behave-trace" in captured.out
-        assert "1.1.0" in captured.out
+        assert "1.2.0" in captured.out
 
 
 # ---------------------------------------------------------------------------
@@ -355,18 +355,27 @@ class TestRunExceptionSafety:
     def test_runner_exception_returns_clean_error(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """Regression for Bug 29: runner.run() raising must not crash with traceback."""
+        """Regression for Bug 29: runner.run() raising must not crash with traceback.
+
+        With the "Run all from UI" feature, the server starts even when the
+        initial run fails. The error is printed to stderr but the CLI does
+        not crash with a traceback.
+        """
         from unittest.mock import patch
 
         features_dir = tmp_path / "features"
         features_dir.mkdir()
 
-        with patch(
-            "behave_trace.runner.BehaveRunner.run",
-            side_effect=OSError("subprocess crashed"),
+        with (
+            patch(
+                "behave_trace.runner.BehaveRunner.run",
+                side_effect=OSError("subprocess crashed"),
+            ),
+            patch("behave_trace.viewer.server.ThreadingHTTPServer"),
+            patch("behave_trace.viewer.browser.open_app"),
+            patch("threading.Event.wait", return_value=True),
         ):
-            result = main(["run", "--no-browser", str(features_dir)])
+            main(["run", "--no-browser", str(features_dir)])
 
-        assert result == 1
         err = capsys.readouterr().err
         assert "failed to run behave" in err.lower()

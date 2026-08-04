@@ -40,7 +40,7 @@ from .models import (
     normalize_level,
 )
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 # Register formatter with Behave's internal registry (Behave 1.3.x doesn't
 # auto-discover entry points — it uses a manual registry).
