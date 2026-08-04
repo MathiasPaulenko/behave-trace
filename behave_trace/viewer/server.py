@@ -221,12 +221,14 @@ class ViewerServer:
                     "completed": int(completed),
                     "total": int(total),
                 }
-                sstate.notify({
-                    "type": "scenario_completed",
-                    "completed": sstate.progress["completed"],
-                    "total": sstate.progress["total"],
-                    "scenario_name": payload.get("scenario_name", ""),
-                })
+                sstate.notify(
+                    {
+                        "type": "scenario_completed",
+                        "completed": sstate.progress["completed"],
+                        "total": sstate.progress["total"],
+                        "scenario_name": payload.get("scenario_name", ""),
+                    }
+                )
                 self._send_json_response({"status": "ok"})
 
             def _handle_autorun(self, sstate: _ServerState) -> None:

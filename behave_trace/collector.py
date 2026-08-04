@@ -213,12 +213,14 @@ class Collector:
         if not self._progress_url:
             return
         url = f"{self._progress_url}/api/progress"
-        payload = json.dumps({
-            "event": event,
-            "scenario_name": scenario_name,
-            "completed": self._completed_scenarios,
-            "total": self._started_scenarios,
-        }).encode()
+        payload = json.dumps(
+            {
+                "event": event,
+                "scenario_name": scenario_name,
+                "completed": self._completed_scenarios,
+                "total": self._started_scenarios,
+            }
+        ).encode()
         try:
             req = Request(
                 url,
