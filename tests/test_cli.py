@@ -374,6 +374,7 @@ class TestRunExceptionSafety:
             patch("behave_trace.viewer.server.ThreadingHTTPServer"),
             patch("behave_trace.viewer.browser.open_app"),
             patch("threading.Event.wait", return_value=True),
+            patch.object(sys, "platform", "win32"),
         ):
             main(["run", "--no-browser", str(features_dir)])
 
