@@ -36,7 +36,8 @@ def normalize_status(value: Any) -> str:
     """Normalize a Behave status to a canonical lowercase string."""
     if value is None:
         return STATUS_UNTESTED
-    name = getattr(value, "name", None) or str(value)
+    name = getattr(value, "name", None)
+    name = str(value) if name is None else str(name)
     name = name.lower().strip()
     if name in ALL_STATUSES:
         return name
@@ -44,7 +45,7 @@ def normalize_status(value: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Artifacts — capturados por step
+# Artifacts — captured per step
 # ---------------------------------------------------------------------------
 
 ARTIFACT_SCREENSHOT = "screenshot"
@@ -54,6 +55,38 @@ ARTIFACT_EXCEPTION = "exception"
 ARTIFACT_TEXT = "text"
 ARTIFACT_JSON = "json"
 ARTIFACT_FILE = "file"
+ARTIFACT_NETWORK = "network"
+
+# ---------------------------------------------------------------------------
+# Log levels
+# ---------------------------------------------------------------------------
+
+LOG_INFO = "info"
+LOG_WARNING = "warning"
+LOG_ERROR = "error"
+
+ALL_LOG_LEVELS = (LOG_INFO, LOG_WARNING, LOG_ERROR)
+
+_VALID_LEVELS = frozenset(ALL_LOG_LEVELS)
+
+
+def normalize_level(level: Any) -> str:
+    """Normalize a log level to a canonical lowercase string.
+
+    Accepts strings or any other type; non-string inputs are coerced
+    via ``str()`` so the function never raises.
+    """
+    if not level:
+        return LOG_INFO
+    name = str(level).lower().strip()
+    if name in _VALID_LEVELS:
+        return name
+    # Common aliases
+    if name == "warn":
+        return LOG_WARNING
+    if name in ("err", "fatal", "critical"):
+        return LOG_ERROR
+    return LOG_INFO
 
 
 @dataclass(slots=True)
@@ -124,7 +157,7 @@ class Step:
     table: DataTable | None = None
     error: ErrorInfo | None = None
     artifacts: list[Artifact] = field(default_factory=list)
-    logs: list[str] = field(default_factory=list)
+    logs: list[str | dict[str, Any]] = field(default_factory=list)
 
     @property
     def has_screenshot(self) -> bool:
@@ -133,6 +166,10 @@ class Step:
     @property
     def has_dom(self) -> bool:
         return any(a.type == ARTIFACT_DOM for a in self.artifacts)
+
+    @property
+    def has_network(self) -> bool:
+        return any(a.type == ARTIFACT_NETWORK for a in self.artifacts)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize including computed properties for the viewer frontend."""
@@ -149,6 +186,7 @@ class Step:
             "logs": self.logs,
             "has_screenshot": self.has_screenshot,
             "has_dom": self.has_dom,
+            "has_network": self.has_network,
         }
 
 
@@ -212,6 +250,7 @@ class Scenario:
             "rule_name": self.rule_name,
             "is_outline": self.is_outline,
             "outline_name": self.outline_name,
+            "examples": as_dict(self.examples) if self.examples else None,
             "step_count": self.step_count,
             "passed_steps": self.passed_steps,
             "failed_steps": self.failed_steps,
@@ -314,6 +353,28 @@ class TraceStats:
     def pass_rate(self) -> float:
         total = self.total_scenarios
         return (self.passed / total * 100.0) if total else 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize including computed properties for the viewer frontend."""
+        return {
+            "total_features": self.total_features,
+            "total_scenarios": self.total_scenarios,
+            "total_steps": self.total_steps,
+            "by_status": self.by_status,
+            "duration": self.duration,
+            "start_time": self.start_time.isoformat() if self.start_time else None,
+            "end_time": self.end_time.isoformat() if self.end_time else None,
+            "total_artifacts": self.total_artifacts,
+            "total_screenshots": self.total_screenshots,
+            "total_logs": self.total_logs,
+            "slowest_step_duration": self.slowest_step_duration,
+            "slowest_step_name": self.slowest_step_name,
+            "avg_step_duration": self.avg_step_duration,
+            "passed": self.passed,
+            "failed": self.failed,
+            "skipped": self.skipped,
+            "pass_rate": self.pass_rate,
+        }
 
 
 # ---------------------------------------------------------------------------

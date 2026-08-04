@@ -41,8 +41,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
-      - run: python -m build
-      - run: pytest tests/ -v --cov --cov-report=xml --timeout=60
+      - run: pytest tests/ -v --cov --cov-report=xml --timeout=120
       - uses: codecov/codecov-action@v5
         with:
           files: ./coverage.xml

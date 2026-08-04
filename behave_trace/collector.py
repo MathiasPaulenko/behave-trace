@@ -20,6 +20,7 @@ from .models import (
     ARTIFACT_DOM,
     ARTIFACT_SCREENSHOT,
     ARTIFACT_TEXT,
+    LOG_INFO,
     Artifact,
     Background,
     DataTable,
@@ -30,9 +31,10 @@ from .models import (
     Step,
     Trace,
     TraceStats,
+    normalize_level,
     normalize_status,
 )
-from .utils import safe_str
+from .utils import safe_float, safe_str
 
 
 class Collector:
@@ -49,6 +51,8 @@ class Collector:
         self._current_feature: Feature | None = None
         self._current_rule_name: str = ""
         self._current_scenario: Scenario | None = None
+        self._pending_artifacts: list[Artifact] = []
+        self._pending_logs: list[dict[str, Any]] = []
 
     # ------------------------------------------------------------------
     # Environment capture
@@ -74,6 +78,11 @@ class Collector:
         except Exception:
             user = ""
 
+        try:
+            hostname = socket.gethostname()
+        except Exception:
+            hostname = ""
+
         git_info = Collector._capture_git_info()
 
         return Environment(
@@ -81,7 +90,7 @@ class Collector:
             behave_version=behave_version,
             behave_trace_version=trace_version,
             platform=f"{platform.system()} {platform.release()} ({platform.machine()})",
-            hostname=socket.gethostname(),
+            hostname=hostname,
             cwd=safe_str(os.getcwd()),
             command=" ".join(sys.argv),
             user=user,
@@ -121,8 +130,10 @@ class Collector:
     def on_feature(self, behave_feature: Any) -> Feature:
         """Start a new feature."""
         feature = Feature(
-            name=getattr(behave_feature, "name", "") or "",
-            description="\n".join(getattr(behave_feature, "description", []) or []),
+            name=safe_str(getattr(behave_feature, "name", "") or ""),
+            description="\n".join(
+                safe_str(d) for d in getattr(behave_feature, "description", []) or []
+            ),
             location=safe_str(getattr(behave_feature, "location", "")),
             tags=[safe_str(t) for t in getattr(behave_feature, "tags", []) or []],
         )
@@ -138,7 +149,7 @@ class Collector:
         if self._current_feature is None:
             return
         self._current_feature.status = normalize_status(getattr(behave_feature, "status", None))
-        self._current_feature.duration = float(getattr(behave_feature, "duration", 0.0) or 0.0)
+        self._current_feature.duration = safe_float(getattr(behave_feature, "duration", 0.0) or 0.0)
         self._current_feature = None
         self._current_rule_name = ""
 
@@ -147,7 +158,7 @@ class Collector:
     # ------------------------------------------------------------------
 
     def on_rule(self, behave_rule: Any) -> None:
-        self._current_rule_name = getattr(behave_rule, "name", "") or ""
+        self._current_rule_name = safe_str(getattr(behave_rule, "name", "") or "")
 
     # ------------------------------------------------------------------
     # Scenario lifecycle
@@ -159,8 +170,10 @@ class Collector:
         is_outline = scenario_type in ("scenario_outline", "outline")
 
         scenario = Scenario(
-            name=getattr(behave_scenario, "name", "") or "",
-            description="\n".join(getattr(behave_scenario, "description", []) or []),
+            name=safe_str(getattr(behave_scenario, "name", "") or ""),
+            description="\n".join(
+                safe_str(d) for d in getattr(behave_scenario, "description", []) or []
+            ),
             location=safe_str(getattr(behave_scenario, "location", "")),
             tags=[safe_str(t) for t in getattr(behave_scenario, "tags", []) or []],
             feature_name=self._current_feature.name if self._current_feature else "",
@@ -179,7 +192,9 @@ class Collector:
         if self._current_scenario is None:
             return
         self._current_scenario.status = normalize_status(getattr(behave_scenario, "status", None))
-        self._current_scenario.duration = float(getattr(behave_scenario, "duration", 0.0) or 0.0)
+        self._current_scenario.duration = safe_float(
+            getattr(behave_scenario, "duration", 0.0) or 0.0
+        )
         self._current_scenario = None
 
     # ------------------------------------------------------------------
@@ -187,20 +202,31 @@ class Collector:
     # ------------------------------------------------------------------
 
     def on_step(self, behave_step: Any) -> Step | None:
-        """Add a step result to the current scenario."""
+        """Add a step result to the current scenario.
+
+        Flushes any pending artifacts and logs that were captured during
+        step execution (via attach_screenshot, attach_dom, log, etc.)
+        onto this step.
+        """
         if self._current_scenario is None:
+            self._pending_artifacts.clear()
+            self._pending_logs.clear()
             return None
         step = self._make_step(behave_step)
+        step.artifacts.extend(self._pending_artifacts)
+        step.logs.extend(self._pending_logs)
+        self._pending_artifacts.clear()
+        self._pending_logs.clear()
         self._current_scenario.steps.append(step)
         return step
 
     def _make_step(self, behave_step: Any) -> Step:
         """Convert a Behave step object into a Step model."""
         step = Step(
-            keyword=(getattr(behave_step, "keyword", "") or "").strip(),
-            name=getattr(behave_step, "name", "") or "",
+            keyword=safe_str(getattr(behave_step, "keyword", "") or "").strip(),
+            name=safe_str(getattr(behave_step, "name", "") or ""),
             status=normalize_status(getattr(behave_step, "status", None)),
-            duration=float(getattr(behave_step, "duration", 0.0) or 0.0),
+            duration=safe_float(getattr(behave_step, "duration", 0.0) or 0.0),
             location=safe_str(getattr(behave_step, "location", "")),
             text=getattr(behave_step, "text", None),
         )
@@ -238,9 +264,9 @@ class Collector:
 
     def _make_artifact(self, embedding: Any) -> Artifact | None:
         """Convert a Behave embedding into an Artifact."""
-        mime_type = getattr(embedding, "mime_type", "") or ""
-        name = getattr(embedding, "name", "") or ""
-        data_base64 = getattr(embedding, "data", "") or ""
+        mime_type = safe_str(getattr(embedding, "mime_type", "") or "")
+        name = safe_str(getattr(embedding, "name", "") or "")
+        data_base64 = safe_str(getattr(embedding, "data", "") or "")
 
         if not data_base64 and not name:
             return None
@@ -265,8 +291,8 @@ class Collector:
     def _make_background(self, behave_background: Any) -> Background:
         """Convert a Behave background object into a Background model."""
         bg = Background(
-            name=getattr(behave_background, "name", "") or "",
-            keyword=getattr(behave_background, "keyword", "Background") or "Background",
+            name=safe_str(getattr(behave_background, "name", "") or ""),
+            keyword=safe_str(getattr(behave_background, "keyword", "Background") or "Background"),
             location=safe_str(getattr(behave_background, "location", "")),
         )
         for behave_step in getattr(behave_background, "steps", []) or []:
@@ -278,20 +304,29 @@ class Collector:
     # ------------------------------------------------------------------
 
     def attach(self, artifact: Artifact) -> None:
-        """Attach an artifact to the current step."""
-        if self._current_scenario is None:
-            return
-        if self._current_scenario.steps:
-            self._current_scenario.steps[-1].artifacts.append(artifact)
-        else:
-            self._current_scenario.steps.append(
-                Step(keyword="", name="(attachment)", artifacts=[artifact])
-            )
+        """Queue an artifact to be attached to the current step.
 
-    def log(self, message: str) -> None:
-        """Append a log line to the current step."""
-        if self._current_scenario and self._current_scenario.steps:
-            self._current_scenario.steps[-1].logs.append(message)
+        Artifacts are buffered and flushed onto the step when
+        :meth:`on_step` is called (after step execution completes).
+        """
+        self._pending_artifacts.append(artifact)
+
+    def log(self, message: str, level: str = LOG_INFO) -> None:
+        """Queue a log line to be attached to the current step.
+
+        Logs are buffered and flushed onto the step when
+        :meth:`on_step` is called (after step execution completes).
+
+        Args:
+            message: The log message text.
+            level: Log level — "info", "warning", or "error".
+        """
+        entry: dict[str, Any] = {
+            "level": normalize_level(level),
+            "message": safe_str(message),
+            "timestamp": datetime.now().isoformat(),
+        }
+        self._pending_logs.append(entry)
 
     # ------------------------------------------------------------------
     # Finalize
@@ -320,8 +355,8 @@ class Collector:
         slowest_name = ""
 
         for feature in self.trace.features:
-            by_status[feature.status] = by_status.get(feature.status, 0) + 1
             for scenario in feature.scenarios:
+                by_status[scenario.status] = by_status.get(scenario.status, 0) + 1
                 for step in scenario.steps:
                     all_step_durations.append(step.duration)
                     if step.duration > slowest_duration:

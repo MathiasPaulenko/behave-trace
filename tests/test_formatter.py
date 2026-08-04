@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from behave_trace.formatter import TraceFormatter
 from behave_trace.models import (
     ARTIFACT_SCREENSHOT,
@@ -210,8 +212,8 @@ class TestAttachAndLog:
         f = make_formatter()
         f.feature(StubFeature(name="F"))
         f.scenario(StubScenario(name="S"))
-        f.result(StubStep(keyword="Given", name="step"))
         f.attach(Artifact(type=ARTIFACT_SCREENSHOT, name="shot.png", mime_type="image/png"))
+        f.result(StubStep(keyword="Given", name="step"))
         step = f._collector.trace.features[0].scenarios[0].steps[0]
         assert len(step.artifacts) == 1
         assert step.artifacts[0].type == ARTIFACT_SCREENSHOT
@@ -220,10 +222,22 @@ class TestAttachAndLog:
         f = make_formatter()
         f.feature(StubFeature(name="F"))
         f.scenario(StubScenario(name="S"))
-        f.result(StubStep(keyword="Given", name="step"))
         f.log("test message")
+        f.result(StubStep(keyword="Given", name="step"))
         step = f._collector.trace.features[0].scenarios[0].steps[0]
-        assert "test message" in step.logs
+        assert len(step.logs) == 1
+        assert isinstance(step.logs[0], dict)
+        assert step.logs[0]["message"] == "test message"
+        assert step.logs[0]["level"] == "info"
+
+    def test_log_with_level(self) -> None:
+        f = make_formatter()
+        f.feature(StubFeature(name="F"))
+        f.scenario(StubScenario(name="S"))
+        f.log("something broke", level="error")
+        f.result(StubStep(keyword="Given", name="step"))
+        step = f._collector.trace.features[0].scenarios[0].steps[0]
+        assert step.logs[0]["level"] == "error"
 
 
 class TestClose:
@@ -267,3 +281,24 @@ class TestBackgroundAndStep:
         f = make_formatter()
         f.match(MagicMock())
         # Should not raise, no side effects
+
+
+class TestCloseSaveError:
+    def test_close_handles_save_error(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Regression for Bug 30: Serializer.save OSError must not crash close()."""
+        f = make_formatter(str(tmp_path / "trace.json"))
+        f.feature(StubFeature(name="F", status="passed"))
+        f.scenario(StubScenario(name="S", status="passed"))
+        f.result(StubStep(keyword="Given", name="step", status="passed", duration=0.1))
+        f.eof()
+
+        with patch(
+            "behave_trace.serializer.Serializer.save",
+            side_effect=OSError("disk full"),
+        ):
+            f.close()  # Should not raise
+
+        err = capsys.readouterr().err
+        assert "cannot write trace file" in err.lower()

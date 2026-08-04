@@ -14,7 +14,6 @@ behave-trace show <trace.json> [options]
 | -------------- | -------- | ------------------------------------------------ |
 | `--port`       | `0`      | Port to serve on (0 = auto-select free port).    |
 | `--no-browser` | `false`  | Don't open a browser automatically.              |
-| `--host`       | `127.0.0.1` | Host to bind the HTTP server.                 |
 
 ### Examples
 
@@ -24,9 +23,41 @@ behave-trace show trace.json
 
 # Serve on a specific port without opening a browser
 behave-trace show trace.json --port 8080 --no-browser
+```
 
-# Serve on all interfaces (for remote access)
-behave-trace show trace.json --host 0.0.0.0 --port 8080 --no-browser
+## `behave-trace run`
+
+Run Behave with the trace formatter, then open the viewer.
+
+```bash
+behave-trace run [features_dir] [options]
+```
+
+### Options
+
+| Flag           | Default  | Description                                      |
+| -------------- | -------- | ------------------------------------------------ |
+| `--port`       | `0`      | Port to serve on (0 = auto-select free port).    |
+| `--no-browser` | `false`  | Don't open a browser automatically.              |
+| `--tags`       | `None`   | Tag expression to pass to behave (e.g. `@smoke`).|
+| `--watch`      | `false`  | Watch for file changes and re-run tests.         |
+
+!!! note
+    `--watch` uses [`watchdog`](https://github.com/gorakhargosh/watchdog) when
+    available for efficient event-driven notifications. Without `watchdog`,
+    it falls back to polling. Install with `pip install behave-trace[watch]`.
+
+### Examples
+
+```bash
+# Run behave and open the viewer
+behave-trace run features/
+
+# Run with tags and watch mode
+behave-trace run features/ --tags @smoke --watch
+
+# Run without opening a browser
+behave-trace run features/ --no-browser
 ```
 
 ## `behave-trace --version`
@@ -38,7 +69,7 @@ behave-trace --version
 ```
 
 ```text
-0.1.0
+1.0.0
 ```
 
 ## `python -m behave_trace`
@@ -51,8 +82,16 @@ python -m behave_trace show trace.json
 
 ## Behave formatter usage
 
-The formatter is registered automatically when `behave_trace` is imported
-(via the `.pth` file on installation). Use it with Behave's `--format` flag:
+Behave 1.3.x does not auto-discover formatters via entry points. Register the
+formatter in a `behave.ini` (or `behave.cfg`, `setup.cfg`) file in your project
+root:
+
+```ini
+[behave.formatters]
+behave-trace = behave_trace.formatter:TraceFormatter
+```
+
+Then use it with Behave's `--format` flag:
 
 ```bash
 # Write trace to a file
@@ -60,4 +99,10 @@ behave --format behave-trace -o trace.json
 
 # Also keep the default pretty output
 behave --format pretty --format behave-trace -o trace.json
+```
+
+Alternatively, you can use the scoped class name directly without registration:
+
+```bash
+behave --format behave_trace.formatter:TraceFormatter -o trace.json
 ```

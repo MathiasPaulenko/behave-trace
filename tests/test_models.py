@@ -8,6 +8,9 @@ from behave_trace.models import (
     ARTIFACT_DOM,
     ARTIFACT_SCREENSHOT,
     ARTIFACT_TEXT,
+    LOG_ERROR,
+    LOG_INFO,
+    LOG_WARNING,
     STATUS_FAILED,
     STATUS_PASSED,
     STATUS_SKIPPED,
@@ -24,6 +27,7 @@ from behave_trace.models import (
     Trace,
     TraceStats,
     as_dict,
+    normalize_level,
     normalize_status,
 )
 
@@ -59,6 +63,64 @@ class TestNormalizeStatus:
             name = "passed"
 
         assert normalize_status(FakeStatus()) == STATUS_PASSED
+
+    def test_object_with_int_name_attribute(self) -> None:
+        """Regression: non-string name attribute should not crash normalize_status."""
+
+        class FakeStatus:
+            name = 42
+
+        assert normalize_status(FakeStatus()) == STATUS_UNTESTED
+
+    def test_int_input_does_not_crash(self) -> None:
+        """Regression: non-string input should not crash normalize_status."""
+        assert normalize_status(42) == STATUS_UNTESTED  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# normalize_level
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeLevel:
+    def test_info(self) -> None:
+        assert normalize_level("info") == LOG_INFO
+
+    def test_warning(self) -> None:
+        assert normalize_level("warning") == LOG_WARNING
+
+    def test_error(self) -> None:
+        assert normalize_level("error") == LOG_ERROR
+
+    def test_empty_returns_info(self) -> None:
+        assert normalize_level("") == LOG_INFO
+
+    def test_uppercase(self) -> None:
+        assert normalize_level("ERROR") == LOG_ERROR
+
+    def test_warn_alias(self) -> None:
+        assert normalize_level("warn") == LOG_WARNING
+
+    def test_fatal_alias(self) -> None:
+        assert normalize_level("fatal") == LOG_ERROR
+
+    def test_critical_alias(self) -> None:
+        assert normalize_level("critical") == LOG_ERROR
+
+    def test_unknown_returns_info(self) -> None:
+        assert normalize_level("foobar") == LOG_INFO
+
+    def test_int_input_does_not_crash(self) -> None:
+        """Regression: non-string input should not crash normalize_level."""
+        assert normalize_level(1) == LOG_INFO  # type: ignore[arg-type]
+
+    def test_none_returns_info(self) -> None:
+        """Regression: None should return LOG_INFO."""
+        assert normalize_level(None) == LOG_INFO  # type: ignore[arg-type]
+
+    def test_list_input_does_not_crash(self) -> None:
+        """Regression: non-string input should not crash normalize_level."""
+        assert normalize_level(["error"]) == LOG_INFO  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -329,3 +391,174 @@ class TestAsDict:
         stats = TraceStats(start_time=datetime(2025, 1, 1, 12, 0, 0))
         d = as_dict(stats)
         assert d["start_time"] == "2025-01-01T12:00:00"
+
+
+# ---------------------------------------------------------------------------
+# Regression: __init__.py public API exports
+# ---------------------------------------------------------------------------
+
+
+class TestPublicAPI:
+    """Regression: ARTIFACT_TEXT and ARTIFACT_NETWORK must be exported."""
+
+    def test_artifact_text_exported(self) -> None:
+        import behave_trace
+
+        assert hasattr(behave_trace, "ARTIFACT_TEXT")
+        assert behave_trace.ARTIFACT_TEXT == "text"
+
+    def test_artifact_network_exported(self) -> None:
+        import behave_trace
+
+        assert hasattr(behave_trace, "ARTIFACT_NETWORK")
+        assert behave_trace.ARTIFACT_NETWORK == "network"
+
+    def test_attach_text_exported(self) -> None:
+        import behave_trace
+
+        assert hasattr(behave_trace, "attach_text")
+        assert callable(behave_trace.attach_text)
+
+    def test_attach_network_exported(self) -> None:
+        import behave_trace
+
+        assert hasattr(behave_trace, "attach_network")
+        assert callable(behave_trace.attach_network)
+
+    def test_all_artifact_constants_in_all(self) -> None:
+        import behave_trace
+
+        for name in (
+            "ARTIFACT_SCREENSHOT",
+            "ARTIFACT_DOM",
+            "ARTIFACT_LOG",
+            "ARTIFACT_TEXT",
+            "ARTIFACT_NETWORK",
+        ):
+            assert name in behave_trace.__all__, f"{name} missing from __all__"
+
+
+# ---------------------------------------------------------------------------
+# Regression: Scenario.to_dict includes examples
+# ---------------------------------------------------------------------------
+
+
+class TestScenarioToDictExamples:
+    """Regression: examples field was missing from Scenario.to_dict()."""
+
+    def test_examples_in_to_dict_when_present(self) -> None:
+        scenario = Scenario(
+            name="Outline",
+            is_outline=True,
+            examples=DataTable(headings=["a", "b"], rows=[["1", "2"]]),
+        )
+        d = scenario.to_dict()
+        assert "examples" in d
+        assert d["examples"] is not None
+        assert d["examples"]["headings"] == ["a", "b"]
+        assert d["examples"]["rows"] == [["1", "2"]]
+
+    def test_examples_null_in_to_dict_when_absent(self) -> None:
+        scenario = Scenario(name="Regular")
+        d = scenario.to_dict()
+        assert d["examples"] is None
+
+
+# ---------------------------------------------------------------------------
+# Regression: TraceStats.to_dict includes computed properties
+# ---------------------------------------------------------------------------
+
+
+class TestTraceStatsToDict:
+    """Regression: TraceStats was missing to_dict(), so computed properties
+    (passed, failed, skipped, pass_rate) were not serialized."""
+
+    def test_to_dict_includes_passed(self) -> None:
+        stats = TraceStats(
+            total_scenarios=10,
+            by_status={STATUS_PASSED: 7, STATUS_FAILED: 2, STATUS_SKIPPED: 1},
+        )
+        d = stats.to_dict()
+        assert d["passed"] == 7
+
+    def test_to_dict_includes_failed(self) -> None:
+        stats = TraceStats(
+            total_scenarios=10,
+            by_status={STATUS_PASSED: 7, STATUS_FAILED: 2, STATUS_SKIPPED: 1},
+        )
+        d = stats.to_dict()
+        assert d["failed"] == 2
+
+    def test_to_dict_includes_skipped(self) -> None:
+        stats = TraceStats(
+            total_scenarios=10,
+            by_status={STATUS_PASSED: 7, STATUS_FAILED: 2, STATUS_SKIPPED: 1},
+        )
+        d = stats.to_dict()
+        assert d["skipped"] == 1
+
+    def test_to_dict_includes_pass_rate(self) -> None:
+        stats = TraceStats(
+            total_scenarios=10,
+            by_status={STATUS_PASSED: 7, STATUS_FAILED: 2, STATUS_SKIPPED: 1},
+        )
+        d = stats.to_dict()
+        assert d["pass_rate"] == 70.0
+
+    def test_to_dict_pass_rate_zero_when_no_scenarios(self) -> None:
+        stats = TraceStats()
+        d = stats.to_dict()
+        assert d["pass_rate"] == 0.0
+
+    def test_to_dict_includes_all_fields(self) -> None:
+        stats = TraceStats(
+            total_features=3,
+            total_scenarios=10,
+            total_steps=30,
+            by_status={STATUS_PASSED: 7},
+            duration=42.0,
+            total_artifacts=5,
+            total_screenshots=3,
+            total_logs=12,
+            slowest_step_duration=1.5,
+            slowest_step_name="Then something",
+            avg_step_duration=0.5,
+        )
+        d = stats.to_dict()
+        assert d["total_features"] == 3
+        assert d["total_scenarios"] == 10
+        assert d["total_steps"] == 30
+        assert d["by_status"] == {STATUS_PASSED: 7}
+        assert d["duration"] == 42.0
+        assert d["total_artifacts"] == 5
+        assert d["total_screenshots"] == 3
+        assert d["total_logs"] == 12
+        assert d["slowest_step_duration"] == 1.5
+        assert d["slowest_step_name"] == "Then something"
+        assert d["avg_step_duration"] == 0.5
+
+    def test_to_dict_start_time_serialized_as_iso(self) -> None:
+        from datetime import datetime
+
+        ts = datetime(2024, 1, 15, 10, 30, 0)
+        stats = TraceStats(start_time=ts, end_time=ts)
+        d = stats.to_dict()
+        assert d["start_time"] == "2024-01-15T10:30:00"
+        assert d["end_time"] == "2024-01-15T10:30:00"
+
+    def test_to_dict_none_times_as_null(self) -> None:
+        stats = TraceStats()
+        d = stats.to_dict()
+        assert d["start_time"] is None
+        assert d["end_time"] is None
+
+    def test_as_dict_uses_to_dict(self) -> None:
+        """as_dict should use TraceStats.to_dict() now that it exists."""
+        stats = TraceStats(
+            total_scenarios=4,
+            by_status={STATUS_PASSED: 3, STATUS_FAILED: 1},
+        )
+        d = as_dict(stats)
+        assert d["passed"] == 3
+        assert d["failed"] == 1
+        assert d["pass_rate"] == 75.0

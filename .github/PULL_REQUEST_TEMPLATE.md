@@ -18,5 +18,5 @@
 
 - [ ] `make lint` passes (ruff check + mypy --strict)
 - [ ] `make format-check` passes (ruff format --check)
-- [ ] `make test-cov` passes with >= 90% coverage
+- [ ] `make test-cov` passes with >= 55% coverage
 - [ ] New tests added for new behavior

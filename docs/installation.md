@@ -9,6 +9,14 @@ behave-trace has **minimal runtime dependencies** — only `behave`. The viewer
 uses only Python stdlib (`http.server`, `json`, `pathlib`). It is pure Python,
 fully typed (`mypy --strict` clean), and works on Linux, macOS, and Windows.
 
+### Optional extras
+
+| Extra | Install command | Description |
+| ----- | --------------- | ----------- |
+| `dev` | `pip install behave-trace[dev]` | pytest, ruff, mypy, build, pre-commit |
+| `docs` | `pip install behave-trace[docs]` | mkdocs, mkdocs-material, mkdocstrings |
+| `watch` | `pip install behave-trace[watch]` | watchdog for `--watch` mode |
+
 ## From PyPI
 
 The recommended way to install behave-trace:
@@ -64,7 +72,7 @@ behave-trace --version
 ```
 
 ```text
-0.1.0
+1.0.0
 ```
 
 You can also verify the Python API is importable:
