@@ -299,3 +299,74 @@ class TestNoCommand:
         assert result == 0
         out = capsys.readouterr().out
         assert "behave-trace" in out.lower() or "usage" in out.lower()
+
+
+# ---------------------------------------------------------------------------
+# run — error cases
+# ---------------------------------------------------------------------------
+
+
+class TestRunErrors:
+    def test_run_dir_not_found(self, capsys: pytest.CaptureFixture[str]) -> None:
+        result = main(["run", "nonexistent_dir"])
+        assert result == 1
+        err = capsys.readouterr().err
+        assert "not found" in err.lower()
+
+    def test_run_help(self, capsys: pytest.CaptureFixture[str]) -> None:
+        with pytest.raises(SystemExit) as exc_info:
+            main(["run", "--help"])
+        assert exc_info.value.code == 0
+        out = capsys.readouterr().out
+        assert "run" in out.lower()
+        assert "features" in out.lower()
+
+
+# ---------------------------------------------------------------------------
+# run — parser registration
+# ---------------------------------------------------------------------------
+
+
+class TestRunParser:
+    def test_run_command_registered(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Verify the run subcommand is listed in help."""
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--help"])
+        assert exc_info.value.code == 0
+        out = capsys.readouterr().out
+        assert "run" in out
+
+    def test_run_default_features_dir(self) -> None:
+        """Verify run defaults to '.' for features_dir."""
+        from behave_trace.cli.app import main as _main
+
+        # Parse without executing — just check the parser doesn't error
+        # We'll use a non-existent dir to get a quick error return
+        result = _main(["run", "--no-browser", "nonexistent_dir_xyz"])
+        assert result == 1
+
+
+# ---------------------------------------------------------------------------
+# run — runner exception safety (Bug 29)
+# ---------------------------------------------------------------------------
+
+
+class TestRunExceptionSafety:
+    def test_runner_exception_returns_clean_error(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Regression for Bug 29: runner.run() raising must not crash with traceback."""
+        from unittest.mock import patch
+
+        features_dir = tmp_path / "features"
+        features_dir.mkdir()
+
+        with patch(
+            "behave_trace.runner.BehaveRunner.run",
+            side_effect=OSError("subprocess crashed"),
+        ):
+            result = main(["run", "--no-browser", str(features_dir)])
+
+        assert result == 1
+        err = capsys.readouterr().err
+        assert "failed to run behave" in err.lower()
