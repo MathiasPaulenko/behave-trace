@@ -95,9 +95,31 @@ behave-trace run features/
 # Run with tags and watch mode
 behave-trace run features/ --tags @smoke --watch
 
+# Run from the UI (no initial trace required)
+# The viewer opens even if behave fails. A "Run all" button lets you
+# execute tests from scratch; selected scenarios can also be re-run.
+behave-trace run --no-browser
+
 # Version
 behave-trace --version
 ```
+
+## Run from the UI
+
+`behave-trace run` starts the viewer even if the initial Behave run fails or no
+features have been executed yet. The viewer then shows a **"Run all"** button in
+the header (and in the empty state) that triggers a fresh Behave execution
+(`POST /api/run`).
+
+While tests are running the viewer receives real-time status updates via
+Server-Sent Events (SSE), and the trace is reloaded automatically when the run
+finishes. You can also select one or more scenarios and re-run only those with
+**"Run selected"**.
+
+When watch mode is active, the viewer header shows an **"Auto-run"** toggle.
+Enable it to re-execute Behave automatically whenever the watched `*.feature` or
+`*.py` files change (debounced 500ms). Disable it to keep the viewer running and
+reload the trace manually.
 
 ## Development
 
