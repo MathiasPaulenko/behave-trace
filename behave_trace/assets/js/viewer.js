@@ -16,6 +16,13 @@ function traceViewer() {
         sourceLoading: false,
         isWatching: false,
         isRunning: false,
+        canRun: false,
+        autoRun: false,
+        progressCompleted: 0,
+        progressTotal: 0,
+        progressStart: null,
+        progressElapsed: 0,
+        _progressInterval: null,
         selectedScenarios: [],
         _eventSource: null,
         theme: 'dark',          // 'dark' | 'light'
@@ -23,6 +30,9 @@ function traceViewer() {
         isLoading: false,
         traceLoaded: false,
         copyFeedback: false,
+        _previousStepStatuses: {},  // step key -> previous status for diff
+        timelinePreview: null,
+        scenarioSort: 'default',    // 'default' | 'name' | 'duration' | 'status'
 
         // ─── Init ───
         async init() {
@@ -32,6 +42,12 @@ function traceViewer() {
                 this.theme = savedTheme;
             }
             this._applyTheme();
+
+            // Load saved scenario sort
+            const savedSort = localStorage.getItem('bt-scenario-sort');
+            if (savedSort === 'default' || savedSort === 'name' || savedSort === 'duration' || savedSort === 'status') {
+                this.scenarioSort = savedSort;
+            }
 
             this.isLoading = true;
             try {
@@ -94,16 +110,65 @@ function traceViewer() {
                     if (event.watching !== undefined) {
                         this.isWatching = event.watching === true;
                     }
+                    if (event.canRun !== undefined) {
+                        this.canRun = event.canRun === true;
+                    }
+                    if (event.autoRun !== undefined) {
+                        this.autoRun = event.autoRun === true;
+                    }
+                    if (event.progress !== undefined) {
+                        this.progressCompleted = event.progress.completed || 0;
+                        this.progressTotal = event.progress.total || 0;
+                    }
+                    if (event.progressStart !== undefined && event.progressStart !== null) {
+                        this.progressStart = event.progressStart;
+                    }
+                    if (this.isRunning) {
+                        this._startProgressTimer();
+                    } else {
+                        this._stopProgressTimer();
+                    }
                     break;
                 case 'run_started':
                     this.isRunning = true;
+                    this.progressCompleted = 0;
+                    this.progressTotal = 0;
+                    this.progressElapsed = 0;
+                    if (event.progressStart !== undefined) {
+                        this.progressStart = event.progressStart;
+                    } else {
+                        this.progressStart = Date.now() / 1000;
+                    }
+                    this._startProgressTimer();
+                    break;
+                case 'scenario_completed':
+                    this.progressCompleted = event.completed || 0;
+                    this.progressTotal = event.total || 0;
                     break;
                 case 'run_completed':
                     this.isRunning = false;
+                    this._stopProgressTimer();
+                    this.progressCompleted = this.progressTotal;
                     break;
                 case 'trace_updated':
                     this._reloadTrace();
                     break;
+            }
+        },
+
+        _startProgressTimer() {
+            if (this._progressInterval) return;
+            this._progressInterval = setInterval(() => {
+                if (this.progressStart) {
+                    this.progressElapsed = Math.floor(Date.now() / 1000 - this.progressStart);
+                }
+            }, 1000);
+        },
+
+        _stopProgressTimer() {
+            if (this._progressInterval) {
+                clearInterval(this._progressInterval);
+                this._progressInterval = null;
             }
         },
 
@@ -115,6 +180,8 @@ function traceViewer() {
                 const openMap = {};
                 if (this.trace) {
                     this.trace.features.forEach(f => { openMap[f.name] = f._open; });
+                    // Save previous step statuses for diff
+                    this._savePreviousStatuses();
                 }
                 newTrace.features.forEach(f => {
                     f._open = openMap[f.name] !== undefined ? openMap[f.name] : true;
@@ -122,6 +189,59 @@ function traceViewer() {
                 this.trace = newTrace;
             } catch (err) {
                 console.error('Failed to reload trace:', err);
+            }
+        },
+
+        _stepKey(scenario, step) {
+            return (scenario?.name || '') + '::' + (step?.keyword || '') + ' ' + (step?.name || '');
+        },
+
+        _savePreviousStatuses() {
+            if (!this.trace) return;
+            const map = {};
+            this.trace.features.forEach(f => {
+                f.scenarios.forEach(s => {
+                    (s.steps || []).forEach(st => {
+                        map[this._stepKey(s, st)] = st.status;
+                    });
+                });
+            });
+            this._previousStepStatuses = map;
+        },
+
+        stepDiffBadge(scenario, step) {
+            const key = this._stepKey(scenario, step);
+            const prev = this._previousStepStatuses[key];
+            if (!prev || prev === step.status) return '';
+            if (prev === 'failed' && step.status === 'passed') return 'fixed';
+            if (prev === 'passed' && step.status === 'failed') return 'broken';
+            return 'changed';
+        },
+
+        async runAll() {
+            if (this.isRunning) return;
+            try {
+                await fetch('/api/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                });
+            } catch (err) {
+                console.error('Run all failed:', err);
+            }
+        },
+
+        async toggleAutoRun() {
+            if (!this.isWatching) return;
+            const newValue = !this.autoRun;
+            this.autoRun = newValue;
+            try {
+                await fetch('/api/autorun', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: newValue }),
+                });
+            } catch (err) {
+                console.error('Toggle auto-run failed:', err);
             }
         },
 
@@ -302,6 +422,38 @@ function traceViewer() {
             return Array.from(tags).sort();
         },
 
+        // ─── Computed: counts by status ───
+        get statusCounts() {
+            if (!this.trace) {
+                return { passed: 0, failed: 0, skipped: 0, undefined: 0 };
+            }
+            const counts = { passed: 0, failed: 0, skipped: 0, undefined: 0 };
+            this.allScenarios.forEach(s => {
+                if (s.status in counts) {
+                    counts[s.status] += 1;
+                }
+            });
+            return counts;
+        },
+
+        // ─── Computed: slow scenario count ───
+        get slowCount() {
+            if (!this.trace) return 0;
+            return this.allScenarios.filter(s => (s.duration || 0) > 0.5).length;
+        },
+
+        // ─── Computed: count per tag ───
+        get tagCounts() {
+            if (!this.trace) return {};
+            const counts = {};
+            this.allScenarios.forEach(s => {
+                (s.tags || []).forEach(t => {
+                    counts[t] = (counts[t] || 0) + 1;
+                });
+            });
+            return counts;
+        },
+
         // ─── Computed: filtered features ───
         get filteredFeatures() {
             if (!this.trace) return [];
@@ -339,12 +491,40 @@ function traceViewer() {
         },
 
         filteredScenarios(feature) {
-            return feature.scenarios.filter(s =>
+            const filtered = feature.scenarios.filter(s =>
                 this.matchesSearch(s) &&
                 this.matchesStatusFilter(s) &&
                 this.matchesTags(s) &&
                 this.matchesRadioFilter(s)
             );
+            return this._sortScenarios(filtered);
+        },
+
+        _sortScenarios(scenarios) {
+            if (this.scenarioSort === 'default') return scenarios;
+
+            const statusOrder = { failed: 0, skipped: 1, undefined: 2, passed: 3 };
+
+            return [...scenarios].sort((a, b) => {
+                if (this.scenarioSort === 'name') {
+                    const nameA = (a.name || '').toLowerCase();
+                    const nameB = (b.name || '').toLowerCase();
+                    return nameA.localeCompare(nameB);
+                }
+                if (this.scenarioSort === 'duration') {
+                    return (b.duration || 0) - (a.duration || 0);
+                }
+                if (this.scenarioSort === 'status') {
+                    const orderA = statusOrder[a.status] ?? 99;
+                    const orderB = statusOrder[b.status] ?? 99;
+                    return orderA - orderB;
+                }
+                return 0;
+            });
+        },
+
+        saveScenarioSort() {
+            localStorage.setItem('bt-scenario-sort', this.scenarioSort);
         },
 
         toggleTag(tag) {
@@ -388,8 +568,45 @@ function traceViewer() {
             feature._open = !feature._open;
         },
 
+        expandAllFeatures() {
+            if (!this.trace) return;
+            this.trace.features.forEach(f => { f._open = true; });
+        },
+
+        collapseAllFeatures() {
+            if (!this.trace) return;
+            this.trace.features.forEach(f => { f._open = false; });
+        },
+
+        openCurrentFeature() {
+            if (!this.trace || !this.currentScenario?.feature_name) return;
+            const feature = this.trace.features.find(f => f.name === this.currentScenario.feature_name);
+            if (feature) {
+                feature._open = true;
+                // Deselect so the user sees the feature context in the tree
+                this.currentScenario = null;
+                this.selectedStepIdx = null;
+            }
+        },
+
         isActiveScenario(scenario) {
             return this.currentScenario === scenario;
+        },
+
+        getScenarioError(scenario) {
+            const failed = scenario.steps?.find(s => s.status === 'failed' && s.error);
+            return failed ? failed.error : null;
+        },
+
+        formatErrorSummary(error) {
+            if (!error) return '';
+            const text = error.message || error.traceback || '';
+            const lines = text.split('\n').slice(0, 3);
+            return lines.join('\n');
+        },
+
+        toggleError(scenario) {
+            scenario._errorOpen = !scenario._errorOpen;
         },
 
         // ─── Selection ───
@@ -443,6 +660,19 @@ function traceViewer() {
             return ((step.duration || 0) / total) * 100;
         },
 
+        showTimelinePreview(step, event) {
+            const rect = event.target.getBoundingClientRect();
+            this.timelinePreview = {
+                step,
+                left: rect.left + rect.width / 2,
+                top: rect.top,
+            };
+        },
+
+        hideTimelinePreview() {
+            this.timelinePreview = null;
+        },
+
         updateCursor() {
             if (!this.currentScenario || this.selectedStepIdx === null) {
                 this.cursorPos = 0;
@@ -483,20 +713,88 @@ function traceViewer() {
             return prevStep?.has_dom || false;
         },
 
-        currentSnapshotHtml() {
-            if (!this.selectedStep) return '<p>No snapshot available</p>';
-            let html;
-            if (this.snapshotMode === 'before' && this.hasBeforeSnapshot()) {
-                const prevStep = this.currentScenario.steps[this.selectedStepIdx - 1];
-                const dom = prevStep.artifacts?.find(a => a.type === 'dom');
-                html = dom?.text || '<p>No before snapshot</p>';
-            } else {
-                const dom = this.selectedStep.artifacts?.find(a => a.type === 'dom');
-                html = dom?.text || '<p>No snapshot available</p>';
+        _stripScripts(html) {
+            if (!html) return html;
+            return html
+                .replace(/<script[\s\S]*?<\/script>/gi, '')
+                .replace(/<noscript[\s\S]*?<\/noscript>/gi, '');
+        },
+
+        beforeSnapshotHtml() {
+            if (this.selectedStepIdx === null || !this.currentScenario || this.selectedStepIdx === 0) {
+                return '<p>No before snapshot</p>';
             }
-            // Strip <script> and <noscript> tags so the snapshot renders as a
-            // static visual state without re-executing SPA JavaScript in the iframe
-            return html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<noscript[\s\S]*?<\/noscript>/gi, '');
+            const prevStep = this.currentScenario.steps[this.selectedStepIdx - 1];
+            const dom = prevStep?.artifacts?.find(a => a.type === 'dom');
+            return this._stripScripts(dom?.text || '<p>No before snapshot</p>');
+        },
+
+        afterSnapshotHtml() {
+            if (!this.selectedStep) return '<p>No snapshot available</p>';
+            const dom = this.selectedStep.artifacts?.find(a => a.type === 'dom');
+            return this._stripScripts(dom?.text || '<p>No snapshot available</p>');
+        },
+
+        currentSnapshotHtml() {
+            if (this.snapshotMode === 'before' && this.hasBeforeSnapshot()) {
+                return this.beforeSnapshotHtml();
+            }
+            return this.afterSnapshotHtml();
+        },
+
+        _tokenizeHtml(html) {
+            return html.match(/<[^>]+>|[^<]+/g) || [];
+        },
+
+        _escapeHtml(text) {
+            return text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        },
+
+        _computeDiff(oldTokens, newTokens) {
+            const m = oldTokens.length;
+            const n = newTokens.length;
+            const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+            for (let i = 1; i <= m; i++) {
+                for (let j = 1; j <= n; j++) {
+                    if (oldTokens[i - 1] === newTokens[j - 1]) {
+                        dp[i][j] = dp[i - 1][j - 1] + 1;
+                    } else {
+                        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+                    }
+                }
+            }
+            const result = [];
+            let i = m, j = n;
+            while (i > 0 || j > 0) {
+                if (i > 0 && j > 0 && oldTokens[i - 1] === newTokens[j - 1]) {
+                    result.unshift({ type: 'same', text: oldTokens[i - 1] });
+                    i--;
+                    j--;
+                } else if (i > 0 && (j === 0 || dp[i - 1][j] >= dp[i][j - 1])) {
+                    result.unshift({ type: 'removed', text: oldTokens[i - 1] });
+                    i--;
+                } else {
+                    result.unshift({ type: 'added', text: newTokens[j - 1] });
+                    j--;
+                }
+            }
+            return result;
+        },
+
+        diffHtml() {
+            if (!this.hasBeforeSnapshot()) return '<p class="snapshot-diff__empty">No before snapshot available</p>';
+            const before = this._tokenizeHtml(this.beforeSnapshotHtml());
+            const after = this._tokenizeHtml(this.afterSnapshotHtml());
+            const diff = this._computeDiff(before, after);
+            return diff.map(d => {
+                const text = this._escapeHtml(d.text);
+                if (d.type === 'added') return `<span class="diff-added">${text}</span>`;
+                if (d.type === 'removed') return `<span class="diff-removed">${text}</span>`;
+                return `<span>${text}</span>`;
+            }).join('');
         },
 
         // ─── Source (step implementation) ───
@@ -609,6 +907,18 @@ function traceViewer() {
             const m = Math.floor(seconds / 60);
             const s = Math.floor(seconds % 60);
             return m + 'm ' + s + 's';
+        },
+
+        formatElapsed(seconds) {
+            const s = Math.max(0, seconds || 0);
+            const m = Math.floor(s / 60);
+            const rem = Math.floor(s % 60);
+            return m + ':' + rem.toString().padStart(2, '0');
+        },
+
+        progressPercent() {
+            if (!this.progressTotal) return 0;
+            return Math.min(100, Math.round((this.progressCompleted / this.progressTotal) * 100));
         },
 
         formatTime(timestamp) {
