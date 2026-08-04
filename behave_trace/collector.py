@@ -8,6 +8,7 @@ unit-test with simple stubs.
 from __future__ import annotations
 
 import getpass
+import json
 import os
 import platform
 import socket
@@ -15,6 +16,7 @@ import subprocess
 import sys
 from datetime import datetime
 from typing import Any
+from urllib.request import Request, urlopen
 
 from .models import (
     ARTIFACT_DOM,
@@ -53,6 +55,9 @@ class Collector:
         self._current_scenario: Scenario | None = None
         self._pending_artifacts: list[Artifact] = []
         self._pending_logs: list[dict[str, Any]] = []
+        self._started_scenarios = 0
+        self._completed_scenarios = 0
+        self._progress_url = os.environ.get("BEHAVE_TRACE_SERVER_URL")
 
     # ------------------------------------------------------------------
     # Environment capture
@@ -179,12 +184,16 @@ class Collector:
             feature_name=self._current_feature.name if self._current_feature else "",
             rule_name=self._current_rule_name,
             is_outline=is_outline,
+            outline_name="",
+            examples=None,
         )
         if self._current_feature and self._current_feature.background:
             scenario.background = self._current_feature.background
         self._current_scenario = scenario
         if self._current_feature is not None:
             self._current_feature.scenarios.append(scenario)
+        self._started_scenarios += 1
+        self._post_progress("scenario_started", scenario.name)
         return scenario
 
     def on_scenario_end(self, behave_scenario: Any) -> None:
@@ -195,7 +204,33 @@ class Collector:
         self._current_scenario.duration = safe_float(
             getattr(behave_scenario, "duration", 0.0) or 0.0
         )
+        self._completed_scenarios += 1
+        self._post_progress("scenario_completed", self._current_scenario.name)
         self._current_scenario = None
+
+    def _post_progress(self, event: str, scenario_name: str) -> None:
+        """Notify the viewer server of scenario progress via HTTP POST."""
+        if not self._progress_url:
+            return
+        url = f"{self._progress_url}/api/progress"
+        payload = json.dumps({
+            "event": event,
+            "scenario_name": scenario_name,
+            "completed": self._completed_scenarios,
+            "total": self._started_scenarios,
+        }).encode()
+        try:
+            req = Request(
+                url,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(req, timeout=1):
+                pass
+        except Exception:
+            # Server may be unavailable; don't fail the test run
+            pass
 
     # ------------------------------------------------------------------
     # Step

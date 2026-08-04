@@ -6,7 +6,6 @@ enabling the ``behave-trace run`` command (equivalent to ``playwright test --ui`
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -42,8 +41,10 @@ class BehaveRunner:
             self._behave = str(behave_executable)
             self._use_module = False
         else:
-            self._behave = shutil.which("behave") or "behave"
-            self._use_module = self._behave == "behave" and shutil.which("behave") is None
+            # Always use `python -m behave` to guarantee the same interpreter
+            # and make behave_trace importable for the formatter.
+            self._behave = sys.executable
+            self._use_module = True
 
     def build_command(
         self,
@@ -80,6 +81,7 @@ class BehaveRunner:
         tags: str | None = None,
         extra_args: list[str] | None = None,
         cwd: str | Path | None = None,
+        server_url: str | None = None,
     ) -> RunResult:
         """Execute behave and return the result.
 
@@ -109,6 +111,10 @@ class BehaveRunner:
                 env["PYTHONPATH"] = f"{candidate_root}{os.pathsep}{existing}"
             else:
                 env["PYTHONPATH"] = str(candidate_root)
+
+        if server_url:
+            env = env or os.environ.copy()
+            env["BEHAVE_TRACE_SERVER_URL"] = str(server_url)
 
         result = subprocess.run(
             cmd,
@@ -163,6 +169,7 @@ class BehaveRunner:
         tags: str | None = None,
         scenario_names: list[str] | None = None,
         cwd: str | Path | None = None,
+        server_url: str | None = None,
     ) -> RunResult:
         """Execute behave filtered by scenario names.
 
@@ -189,4 +196,5 @@ class BehaveRunner:
             tags=tags,
             extra_args=extra_args,
             cwd=cwd,
+            server_url=server_url,
         )

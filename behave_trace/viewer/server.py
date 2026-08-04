@@ -14,6 +14,7 @@ import gzip
 import json
 import queue
 import threading
+import time
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -64,11 +65,21 @@ _SSE_HEARTBEAT_S = 15.0
 class _ServerState:
     """Mutable state shared between the server and request handlers."""
 
-    def __init__(self, trace_json: bytes, watching: bool) -> None:
+    def __init__(
+        self,
+        trace_json: bytes,
+        watching: bool,
+        can_run: bool = False,
+        auto_run: bool = False,
+    ) -> None:
         self.trace_bytes: bytes = trace_json
         self.trace_gzipped: bytes = gzip.compress(trace_json)
         self.watching: bool = watching
+        self.can_run: bool = can_run
+        self.auto_run: bool = auto_run
         self.running: bool = False
+        self.progress: dict[str, int] = {"completed": 0, "total": 0}
+        self.progress_start: float | None = None
         self.sse_clients: list[queue.Queue[dict[str, Any]]] = []
         self.clients_lock = threading.Lock()
 
@@ -88,7 +99,13 @@ class _ServerState:
     def set_running(self, running: bool) -> None:
         """Set the running state and notify clients."""
         self.running = running
-        self.notify({"type": "run_started" if running else "run_completed"})
+        if running:
+            self.progress = {"completed": 0, "total": 0}
+            self.progress_start = time.time()
+            self.notify({"type": "run_started", "progressStart": self.progress_start})
+        else:
+            self.progress_start = None
+            self.notify({"type": "run_completed"})
 
 
 class ViewerServer:
@@ -111,11 +128,15 @@ class ViewerServer:
 
     def __init__(
         self,
-        trace: Trace,
+        trace: Trace | None = None,
         port: int = 0,
         watching: bool = False,
         rerun_callback: Callable[[list[str] | None], None] | None = None,
     ) -> None:
+        if trace is None:
+            from behave_trace.models import Trace as _Trace
+
+            trace = _Trace()
         self.trace = trace
         self.port = port
         self.watching = watching
@@ -124,7 +145,12 @@ class ViewerServer:
         self._thread: threading.Thread | None = None
         self._trace_json: bytes = json.dumps(as_dict(self.trace), default=str).encode()
         self._base_dir: Path = Path(trace.environment.cwd or ".").resolve()
-        self._state = _ServerState(self._trace_json, watching)
+        self._state = _ServerState(
+            self._trace_json,
+            watching,
+            can_run=rerun_callback is not None,
+            auto_run=watching,
+        )
 
     @property
     def url(self) -> str:
@@ -163,8 +189,90 @@ class ViewerServer:
                 parsed = urlparse(self.path)
                 if parsed.path == "/api/rerun":
                     self._handle_rerun(state, rerun_cb)
+                elif parsed.path == "/api/run":
+                    self._handle_run(state, rerun_cb)
+                elif parsed.path == "/api/autorun":
+                    self._handle_autorun(state)
+                elif parsed.path == "/api/progress":
+                    self._handle_progress(state)
                 else:
                     self._send_json_response({"error": "Not found"}, status=404)
+
+            def _handle_progress(self, sstate: _ServerState) -> None:
+                """Handle POST /api/progress — update live progress."""
+                try:
+                    content_length = int(self.headers.get("Content-Length", 0))
+                except (ValueError, TypeError):
+                    content_length = 0
+                body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+                try:
+                    payload = json.loads(body)
+                except json.JSONDecodeError:
+                    self._send_json_response({"error": "Invalid JSON"}, status=400)
+                    return
+
+                if not isinstance(payload, dict):
+                    self._send_json_response({"error": "Expected JSON object"}, status=400)
+                    return
+
+                completed = payload.get("completed", sstate.progress["completed"])
+                total = payload.get("total", sstate.progress["total"])
+                sstate.progress = {
+                    "completed": int(completed),
+                    "total": int(total),
+                }
+                sstate.notify({
+                    "type": "scenario_completed",
+                    "completed": sstate.progress["completed"],
+                    "total": sstate.progress["total"],
+                    "scenario_name": payload.get("scenario_name", ""),
+                })
+                self._send_json_response({"status": "ok"})
+
+            def _handle_autorun(self, sstate: _ServerState) -> None:
+                """Handle POST /api/autorun — toggle auto-run on/off."""
+                try:
+                    content_length = int(self.headers.get("Content-Length", 0))
+                except (ValueError, TypeError):
+                    content_length = 0
+                body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+                try:
+                    payload = json.loads(body)
+                except json.JSONDecodeError:
+                    self._send_json_response({"error": "Invalid JSON"}, status=400)
+                    return
+
+                if not isinstance(payload, dict):
+                    self._send_json_response({"error": "Expected JSON object"}, status=400)
+                    return
+
+                enabled = payload.get("enabled")
+                if not isinstance(enabled, bool):
+                    self._send_json_response({"error": "Missing 'enabled' boolean"}, status=400)
+                    return
+
+                sstate.auto_run = enabled
+                sstate.notify({"type": "state", "autoRun": enabled})
+                self._send_json_response({"status": "ok", "autoRun": enabled})
+
+            def _handle_run(
+                self,
+                sstate: _ServerState,
+                cb: Callable[[list[str] | None], None] | None,
+            ) -> None:
+                """Handle POST /api/run — execute behave from scratch (all tests)."""
+                if cb is None:
+                    self._send_json_response(
+                        {"error": "Run not available (no callback configured)"},
+                        status=501,
+                    )
+                    return
+                if sstate.running:
+                    self._send_json_response({"error": "Already running"}, status=409)
+                    return
+                self._send_json_response({"status": "accepted"})
+                thread = threading.Thread(target=cb, args=(None,), daemon=True)
+                thread.start()
 
             def _handle_rerun(
                 self,
@@ -228,7 +336,15 @@ class ViewerServer:
                     sstate.sse_clients.append(client_queue)
 
                 # Send initial state
-                initial = {"type": "state", "running": sstate.running, "watching": sstate.watching}
+                initial = {
+                    "type": "state",
+                    "running": sstate.running,
+                    "watching": sstate.watching,
+                    "canRun": sstate.can_run,
+                    "autoRun": sstate.auto_run,
+                    "progress": sstate.progress,
+                    "progressStart": sstate.progress_start,
+                }
                 try:
                     self._sse_send(initial)
                 except ConnectionError:
@@ -424,6 +540,15 @@ class ViewerServer:
     def set_running(self, running: bool) -> None:
         """Set the running state and notify SSE clients."""
         self._state.set_running(running)
+
+    def set_auto_run(self, auto_run: bool) -> None:
+        """Set the auto-run state and notify SSE clients."""
+        self._state.auto_run = auto_run
+        self._state.notify({"type": "state", "autoRun": auto_run})
+
+    def get_auto_run(self) -> bool:
+        """Return the current auto-run state."""
+        return self._state.auto_run
 
     def notify(self, event: dict[str, Any]) -> None:
         """Push a custom event to all SSE clients."""

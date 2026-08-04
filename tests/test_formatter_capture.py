@@ -31,6 +31,15 @@ def _run_behave(trace_path: Path, cwd: Path) -> subprocess.CompletedProcess[str]
     ``behave_trace.formatter:TraceFormatter`` which Behave resolves
     natively via ``module:Class`` syntax.
     """
+    import os
+
+    project_root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH", "")
+    if existing:
+        env["PYTHONPATH"] = f"{project_root}{os.pathsep}{existing}"
+    else:
+        env["PYTHONPATH"] = str(project_root)
     return subprocess.run(
         [
             sys.executable,
@@ -45,6 +54,7 @@ def _run_behave(trace_path: Path, cwd: Path) -> subprocess.CompletedProcess[str]
         capture_output=True,
         text=True,
         cwd=str(cwd),
+        env=env,
     )
 
 

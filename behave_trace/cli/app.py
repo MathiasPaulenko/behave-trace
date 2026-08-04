@@ -17,6 +17,21 @@ from typing import TYPE_CHECKING
 from behave_trace import __version__
 from behave_trace.utils import format_duration
 
+
+def _resolve_features(dir_path: Path) -> tuple[Path | None, str | Path]:
+    """Return (cwd, features_arg) for behave subprocess.
+
+    If the user passed a directory containing a ``features/`` subfolder
+    (typical for example projects with a ``behave.ini`` in the root),
+    run behave from that root so the configuration is discovered.
+    """
+    if dir_path.name == "features":
+        return dir_path.parent, "features"
+    if (dir_path / "features").is_dir():
+        return dir_path, "features"
+    return None, dir_path
+
+
 if TYPE_CHECKING:
     from behave_trace.models import Trace
     from behave_trace.runner import BehaveRunner
@@ -108,10 +123,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
     def run_behave() -> int:
         """Execute behave and print output. Returns 0 on success."""
         print(f"Running behave in {features_dir}...")
-        run_cwd = features_dir.parent if features_dir.name == "features" else None
+        run_cwd, run_features = _resolve_features(features_dir)
         try:
             result = runner.run(
-                features_dir=features_dir.name if run_cwd else features_dir,
+                features_dir=run_features,
                 output_path=trace_path,
                 tags=args.tags,
                 cwd=run_cwd,
@@ -131,16 +146,15 @@ def _cmd_run(args: argparse.Namespace) -> int:
     # Initial run
     if run_behave() != 0:
         if not args.watch:
-            return 1
-        print("Waiting for file changes to re-run...", file=sys.stderr)
+            print("Initial run failed. Starting viewer with empty trace...", file=sys.stderr)
+        else:
+            print("Waiting for file changes to re-run...", file=sys.stderr)
 
     # Load trace
     try:
         trace = Serializer.load(trace_path)
     except Exception as exc:
         print(f"Error loading trace: {exc}", file=sys.stderr)
-        if not args.watch:
-            return 1
         trace = None
 
     # Print summary
@@ -150,23 +164,31 @@ def _cmd_run(args: argparse.Namespace) -> int:
     # Rerun callback for POST /api/rerun
     def rerun_callback(scenario_names: list[str] | None) -> None:
         """Re-execute behave (optionally filtered) and update the server."""
-        if server is not None:
-            server.set_running(True)
+        if server is None:
+            return
+
+        server.set_running(True)
+
+        run_cwd, run_features = _resolve_features(features_dir)
 
         try:
             print("Re-running behave...")
             if scenario_names:
                 result = runner.run_filtered(
-                    features_dir=features_dir,
+                    features_dir=run_features,
                     output_path=trace_path,
                     tags=args.tags,
                     scenario_names=scenario_names,
+                    cwd=run_cwd,
+                    server_url=server.url,
                 )
             else:
                 result = runner.run(
-                    features_dir=features_dir,
+                    features_dir=run_features,
                     output_path=trace_path,
                     tags=args.tags,
+                    cwd=run_cwd,
+                    server_url=server.url,
                 )
             if result.stdout:
                 print(result.stdout, end="")
@@ -192,27 +214,23 @@ def _cmd_run(args: argparse.Namespace) -> int:
         except Exception as exc:
             print(f"Error during re-run: {exc}", file=sys.stderr)
         finally:
-            if server is not None:
-                server.set_running(False)
+            server.set_running(False)
 
-    # Start server
+    # Start server (even without trace — enables "Run all" from UI)
     server = None
-    if trace is not None:
-        try:
-            server = ViewerServer(
-                trace,
-                port=args.port,
-                watching=args.watch,
-                rerun_callback=rerun_callback,
-            )
-            server.start()
-        except OSError as exc:
-            print(f"Error: cannot start server on port {args.port}: {exc}", file=sys.stderr)
-            if args.port != 0:
-                print(
-                    "Try a different port with --port, or use --port 0 for auto.", file=sys.stderr
-                )
-            return 1
+    try:
+        server = ViewerServer(
+            trace,
+            port=args.port,
+            watching=args.watch,
+            rerun_callback=rerun_callback,
+        )
+        server.start()
+    except OSError as exc:
+        print(f"Error: cannot start server on port {args.port}: {exc}", file=sys.stderr)
+        if args.port != 0:
+            print("Try a different port with --port, or use --port 0 for auto.", file=sys.stderr)
+        return 1
 
     if server is not None:
         url = server.url
@@ -277,17 +295,27 @@ def _watch_loop(
 
     def on_change(changed_files: list[str]) -> None:
         print(f"\nFiles changed: {', '.join(changed_files)}")
+
+        if server is None:
+            return
+
+        if not server.get_auto_run():
+            print("Auto-run is disabled; ignoring file changes.")
+            return
+
         print("Re-running behave...")
 
-        if server is not None:
-            server.set_running(True)
+        server.set_running(True)
 
         try:
             # Re-run behave
+            run_cwd, run_features = _resolve_features(features_dir)
             result = runner.run(
-                features_dir=features_dir,
+                features_dir=run_features,
                 output_path=trace_path,
                 tags=args.tags,
+                cwd=run_cwd,
+                server_url=server.url,
             )
             if result.stdout:
                 print(result.stdout, end="")
