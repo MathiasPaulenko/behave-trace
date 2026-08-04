@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 
 def safe_str(value: object) -> str:
     """Convert any value to string without raising exceptions.
@@ -17,6 +19,20 @@ def safe_str(value: object) -> str:
             return "<unrepresentable>"
 
 
+def safe_float(value: object, fallback: float = 0.0) -> float:
+    """Convert any value to float without raising exceptions.
+
+    Returns ``fallback`` if the value cannot be converted.
+    """
+    try:
+        result = float(value)  # type: ignore[arg-type]
+        if math.isnan(result) or math.isinf(result):
+            return fallback
+        return result
+    except (TypeError, ValueError):
+        return fallback
+
+
 def format_duration(seconds: float | None) -> str:
     """Format a duration in seconds as a human-readable string.
 
@@ -27,7 +43,7 @@ def format_duration(seconds: float | None) -> str:
         ``225``    → ``"3m 45s"``
         ``3725``   → ``"1h 2m 5s"``
     """
-    if seconds is None or seconds <= 0:
+    if seconds is None or seconds <= 0 or math.isnan(seconds) or math.isinf(seconds):
         return "0ms"
     if seconds < 1:
         return f"{round(seconds * 1000)}ms"

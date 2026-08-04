@@ -81,7 +81,11 @@ class TraceFormatter(Formatter):  # type: ignore[misc]
         from .serializer import Serializer
 
         trace = self._collector.finalize()
-        Serializer.save(trace, self._output_path)
+        try:
+            Serializer.save(trace, self._output_path)
+        except OSError as exc:
+            sys.stderr.write(f"Error: cannot write trace file {self._output_path}: {exc}\n")
+            return
         with contextlib.suppress(Exception):
             sys.stdout.write(
                 f"\nTrace written to: {self._output_path}\n"
@@ -95,8 +99,8 @@ class TraceFormatter(Formatter):  # type: ignore[misc]
     def attach(self, artifact: Artifact) -> None:
         self._collector.attach(artifact)
 
-    def log(self, message: str) -> None:
-        self._collector.log(message)
+    def log(self, message: str, level: str = "info") -> None:
+        self._collector.log(message, level=level)
 
     # ------------------------------------------------------------------
     # Helpers

@@ -9,6 +9,13 @@ A simple Behave project that demonstrates **behave-trace** with:
 
 ## Run
 
+The `behave.ini` in this directory registers the formatter:
+
+```ini
+[behave.formatters]
+behave-trace = behave_trace.formatter:TraceFormatter
+```
+
 ```bash
 # From the repository root, with behave-trace installed:
 cd examples/calculator

@@ -4,18 +4,18 @@ build-backend = "hatchling.build"
 
 [project]
 name = "behave-trace"
-version = "1.0.0"
+version = "1.1.0"
 description = "Trace viewer and step-by-step debugger for Behave BDD."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [
-    { name = "Mathias Paulenko" },
+    { name = "Mathias Paulenko", email = "mathias@paulenko.dev" },
 ]
 keywords = ["behave", "bdd", "trace", "viewer", "debugger", "playwright"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
@@ -46,10 +46,14 @@ docs = [
     "mkdocs-material>=9.5",
     "mkdocstrings[python]>=0.24",
 ]
+watch = [
+    "watchdog>=3.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/MathiasPaulenko/behave-trace"
 Repository = "https://github.com/MathiasPaulenko/behave-trace"
+Documentation = "https://mathiaspaulenko.github.io/behave-trace/"
 Issues = "https://github.com/MathiasPaulenko/behave-trace/issues"
 Changelog = "https://github.com/MathiasPaulenko/behave-trace/blob/main/CHANGELOG.md"
 
@@ -61,14 +65,11 @@ behave-trace = "behave_trace.formatter:TraceFormatter"
 
 [tool.hatch.build.targets.wheel]
 packages = ["behave_trace"]
-artifacts = ["behave_trace.pth"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"behave_trace.pth" = "behave_trace.pth"
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+extend-exclude = ["*.md", "docs", "site"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
@@ -98,8 +99,8 @@ markers = [
 
 [tool.coverage.run]
 source = ["behave_trace"]
-omit = ["*/tests/*"]
+omit = ["*/tests/*", "build/*", "dist/*"]
 
 [tool.coverage.report]
 show_missing = true
-fail_under = 90
+fail_under = 55

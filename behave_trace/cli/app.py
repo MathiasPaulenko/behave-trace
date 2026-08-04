@@ -3,6 +3,7 @@
 Usage::
 
     behave-trace show trace.json [--port PORT] [--no-browser]
+    behave-trace run [features_dir] [--port PORT] [--no-browser] [--tags TAGS]
     behave-trace --version
 """
 
@@ -11,9 +12,15 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from behave_trace import __version__
 from behave_trace.utils import format_duration
+
+if TYPE_CHECKING:
+    from behave_trace.models import Trace
+    from behave_trace.runner import BehaveRunner
+    from behave_trace.viewer.server import ViewerServer
 
 
 def _cmd_show(args: argparse.Namespace) -> int:
@@ -81,6 +88,252 @@ def _cmd_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_run(args: argparse.Namespace) -> int:
+    """Run behave with the trace formatter, then open the viewer."""
+    from behave_trace.runner import BehaveRunner
+    from behave_trace.serializer import Serializer
+    from behave_trace.viewer.browser import open_app
+    from behave_trace.viewer.server import ViewerServer
+
+    features_dir = Path(args.features_dir)
+    if not features_dir.exists():
+        print(f"Error: features directory not found: {features_dir}", file=sys.stderr)
+        return 1
+
+    import tempfile
+
+    trace_path = Path(tempfile.gettempdir()) / "behave-trace-run.json"
+    runner = BehaveRunner()
+
+    def run_behave() -> int:
+        """Execute behave and print output. Returns 0 on success."""
+        print(f"Running behave in {features_dir}...")
+        run_cwd = features_dir.parent if features_dir.name == "features" else None
+        try:
+            result = runner.run(
+                features_dir=features_dir.name if run_cwd else features_dir,
+                output_path=trace_path,
+                tags=args.tags,
+                cwd=run_cwd,
+            )
+        except Exception as exc:
+            print(f"Error: failed to run behave: {exc}", file=sys.stderr)
+            return 1
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        if result.trace_path is None or not result.trace_path.exists():
+            print("Error: behave did not produce a trace file.", file=sys.stderr)
+            return 1
+        return 0
+
+    # Initial run
+    if run_behave() != 0:
+        if not args.watch:
+            return 1
+        print("Waiting for file changes to re-run...", file=sys.stderr)
+
+    # Load trace
+    try:
+        trace = Serializer.load(trace_path)
+    except Exception as exc:
+        print(f"Error loading trace: {exc}", file=sys.stderr)
+        if not args.watch:
+            return 1
+        trace = None
+
+    # Print summary
+    if trace is not None:
+        _print_summary(trace, trace_path)
+
+    # Rerun callback for POST /api/rerun
+    def rerun_callback(scenario_names: list[str] | None) -> None:
+        """Re-execute behave (optionally filtered) and update the server."""
+        if server is not None:
+            server.set_running(True)
+
+        try:
+            print("Re-running behave...")
+            if scenario_names:
+                result = runner.run_filtered(
+                    features_dir=features_dir,
+                    output_path=trace_path,
+                    tags=args.tags,
+                    scenario_names=scenario_names,
+                )
+            else:
+                result = runner.run(
+                    features_dir=features_dir,
+                    output_path=trace_path,
+                    tags=args.tags,
+                )
+            if result.stdout:
+                print(result.stdout, end="")
+            if result.stderr:
+                print(result.stderr, end="", file=sys.stderr)
+
+            if result.trace_path is None or not result.trace_path.exists():
+                print("Error: behave did not produce a trace file.", file=sys.stderr)
+                return
+
+            try:
+                new_trace = Serializer.load(result.trace_path)
+            except Exception as exc:
+                print(f"Error loading trace: {exc}", file=sys.stderr)
+                return
+
+            _print_summary(new_trace, result.trace_path)
+
+            if server is not None:
+                server.update_trace(new_trace)
+
+            print("Viewer updated.")
+        except Exception as exc:
+            print(f"Error during re-run: {exc}", file=sys.stderr)
+        finally:
+            if server is not None:
+                server.set_running(False)
+
+    # Start server
+    server = None
+    if trace is not None:
+        try:
+            server = ViewerServer(
+                trace,
+                port=args.port,
+                watching=args.watch,
+                rerun_callback=rerun_callback,
+            )
+            server.start()
+        except OSError as exc:
+            print(f"Error: cannot start server on port {args.port}: {exc}", file=sys.stderr)
+            if args.port != 0:
+                print(
+                    "Try a different port with --port, or use --port 0 for auto.", file=sys.stderr
+                )
+            return 1
+
+    if server is not None:
+        url = server.url
+        print(f"\nViewer running at {url}")
+        if args.watch:
+            print("Watching for changes... Press Ctrl+C to stop.")
+        else:
+            print("Press Ctrl+C to stop.")
+
+        if not args.no_browser:
+            open_app(url)
+
+    # Watch mode: re-run on file changes
+    if args.watch:
+        return _watch_loop(args, features_dir, trace_path, runner, server)
+
+    # Non-watch: block until Ctrl+C
+    if server is not None:
+        try:
+            if sys.platform == "win32":
+                import threading
+
+                threading.Event().wait()
+            else:
+                import signal
+
+                signal.pause()
+        except KeyboardInterrupt:
+            print("\nStopping...")
+        finally:
+            server.stop()
+
+    return 0
+
+
+def _print_summary(trace: Trace, trace_path: Path) -> None:
+    """Print trace summary to stdout."""
+    stats = trace.stats
+    passed = stats.by_status.get("passed", 0)
+    failed = stats.by_status.get("failed", 0)
+    print(f"\nTrace: {trace_path}")
+    print(f"Features: {stats.total_features}")
+    print(f"Scenarios: {stats.total_scenarios} ({passed} passed, {failed} failed)")
+    print(f"Steps: {stats.total_steps}")
+    print(f"Duration: {format_duration(stats.duration)}")
+
+
+def _watch_loop(
+    args: argparse.Namespace,
+    features_dir: Path,
+    trace_path: Path,
+    runner: BehaveRunner,
+    server: ViewerServer | None,
+) -> int:
+    """Run the watch loop, re-executing behave on file changes."""
+    import threading
+
+    from behave_trace.serializer import Serializer
+    from behave_trace.watcher import FileWatcher
+
+    stop_event = threading.Event()
+
+    def on_change(changed_files: list[str]) -> None:
+        print(f"\nFiles changed: {', '.join(changed_files)}")
+        print("Re-running behave...")
+
+        if server is not None:
+            server.set_running(True)
+
+        try:
+            # Re-run behave
+            result = runner.run(
+                features_dir=features_dir,
+                output_path=trace_path,
+                tags=args.tags,
+            )
+            if result.stdout:
+                print(result.stdout, end="")
+            if result.stderr:
+                print(result.stderr, end="", file=sys.stderr)
+
+            if result.trace_path is None or not result.trace_path.exists():
+                print("Error: behave did not produce a trace file.", file=sys.stderr)
+                return
+
+            # Reload trace
+            try:
+                new_trace = Serializer.load(result.trace_path)
+            except Exception as exc:
+                print(f"Error loading trace: {exc}", file=sys.stderr)
+                return
+
+            _print_summary(new_trace, result.trace_path)
+
+            # Update the server's trace in-place (no restart needed)
+            if server is not None:
+                server.update_trace(new_trace)
+
+            print("Viewer updated.")
+        except Exception as exc:
+            print(f"Error during watch re-run: {exc}", file=sys.stderr)
+        finally:
+            if server is not None:
+                server.set_running(False)
+
+    watcher = FileWatcher(features_dir, on_change, debounce_ms=500)
+    watcher.start()
+    print(f"Watching {features_dir} for changes...")
+
+    try:
+        stop_event.wait()
+    except KeyboardInterrupt:
+        print("\nStopping...")
+    finally:
+        watcher.stop()
+        if server is not None:
+            server.stop()
+
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the behave-trace CLI."""
     parser = argparse.ArgumentParser(
@@ -100,10 +353,33 @@ def main(argv: list[str] | None = None) -> int:
         "--no-browser", action="store_true", help="Do not open a browser window."
     )
 
+    run_parser = subparsers.add_parser(
+        "run", help="Run behave with the trace formatter and open the viewer."
+    )
+    run_parser.add_argument(
+        "features_dir", nargs="?", default=".", help="Directory containing .feature files."
+    )
+    run_parser.add_argument(
+        "--port", type=int, default=0, help="Port to run the viewer on (0 = auto)."
+    )
+    run_parser.add_argument(
+        "--no-browser", action="store_true", help="Do not open a browser window."
+    )
+    run_parser.add_argument(
+        "--tags", default=None, help="Tag expression to pass to behave (e.g. @smoke)."
+    )
+    run_parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="Watch for file changes and re-run tests automatically.",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command == "show":
         return _cmd_show(args)
+    if args.command == "run":
+        return _cmd_run(args)
 
     parser.print_help()
     return 0

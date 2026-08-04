@@ -282,26 +282,57 @@ class TestMakeArtifact:
         assert a is not None
         assert a.type == ARTIFACT_TEXT
 
+    def test_non_string_name_does_not_crash(self) -> None:
+        """Regression: non-string name attribute should not crash _make_artifact."""
+
+        class WeirdEmbedding:
+            mime_type = "text/plain"
+            name = 42
+            data = "abc"
+
+        c = Collector()
+        a = c._make_artifact(WeirdEmbedding())
+        assert a is not None
+        assert a.type == ARTIFACT_TEXT
+
+    def test_non_string_mime_type_does_not_crash(self) -> None:
+        """Regression: non-string mime_type should not crash _make_artifact."""
+
+        class WeirdEmbedding:
+            mime_type = None
+            name = "screenshot_1.png"
+            data = "abc"
+
+        c = Collector()
+        a = c._make_artifact(WeirdEmbedding())
+        assert a is not None
+        assert a.type == ARTIFACT_SCREENSHOT
+
 
 class TestAttach:
-    def test_attach_adds_to_current_step(self) -> None:
+    def test_attach_buffers_then_flushes_on_step(self) -> None:
+        """attach() before on_step() buffers the artifact; on_step flushes it."""
         c = Collector()
         c.on_feature(StubFeature(name="F"))
         c.on_scenario(StubScenario(name="S"))
-        c.on_step(StubStep(keyword="Given", name="step"))
         c.attach(Artifact(type=ARTIFACT_SCREENSHOT, name="shot.png", mime_type="image/png"))
+        c.on_step(StubStep(keyword="Given", name="step"))
         step = c.trace.features[0].scenarios[0].steps[0]
         assert len(step.artifacts) == 1
         assert step.artifacts[0].type == ARTIFACT_SCREENSHOT
 
-    def test_attach_without_step_creates_attachment_step(self) -> None:
+    def test_attach_after_step_buffers_for_next_step(self) -> None:
+        """attach() after on_step() buffers for the next step, not the previous one."""
         c = Collector()
         c.on_feature(StubFeature(name="F"))
         c.on_scenario(StubScenario(name="S"))
-        c.attach(Artifact(type=ARTIFACT_TEXT, name="note.txt"))
-        steps = c.trace.features[0].scenarios[0].steps
-        assert len(steps) == 1
-        assert steps[0].name == "(attachment)"
+        c.on_step(StubStep(keyword="Given", name="step1"))
+        c.attach(Artifact(type=ARTIFACT_SCREENSHOT, name="shot.png", mime_type="image/png"))
+        c.on_step(StubStep(keyword="When", name="step2"))
+        step1 = c.trace.features[0].scenarios[0].steps[0]
+        step2 = c.trace.features[0].scenarios[0].steps[1]
+        assert len(step1.artifacts) == 0
+        assert len(step2.artifacts) == 1
 
     def test_attach_without_scenario_noop(self) -> None:
         c = Collector()
@@ -310,14 +341,38 @@ class TestAttach:
 
 
 class TestLog:
-    def test_log_adds_to_current_step(self) -> None:
+    def test_log_buffers_then_flushes_on_step(self) -> None:
+        """log() before on_step() buffers; on_step flushes it onto the step."""
         c = Collector()
         c.on_feature(StubFeature(name="F"))
         c.on_scenario(StubScenario(name="S"))
-        c.on_step(StubStep(keyword="Given", name="step"))
         c.log("something happened")
+        c.on_step(StubStep(keyword="Given", name="step"))
         step = c.trace.features[0].scenarios[0].steps[0]
-        assert "something happened" in step.logs
+        assert len(step.logs) == 1
+        entry = step.logs[0]
+        assert isinstance(entry, dict)
+        assert entry["message"] == "something happened"
+        assert entry["level"] == "info"
+        assert "timestamp" in entry
+
+    def test_log_with_level(self) -> None:
+        c = Collector()
+        c.on_feature(StubFeature(name="F"))
+        c.on_scenario(StubScenario(name="S"))
+        c.log("oops", level="error")
+        c.on_step(StubStep(keyword="Given", name="step"))
+        step = c.trace.features[0].scenarios[0].steps[0]
+        assert step.logs[0]["level"] == "error"
+
+    def test_log_level_normalization(self) -> None:
+        c = Collector()
+        c.on_feature(StubFeature(name="F"))
+        c.on_scenario(StubScenario(name="S"))
+        c.log("warn", level="WARN")
+        c.on_step(StubStep(keyword="Given", name="step"))
+        step = c.trace.features[0].scenarios[0].steps[0]
+        assert step.logs[0]["level"] == "warning"
 
     def test_log_without_step_noop(self) -> None:
         c = Collector()
@@ -350,8 +405,12 @@ class TestFinalize:
     def test_compute_stats_by_status(self) -> None:
         c = Collector()
         c.on_feature(StubFeature(name="F1"))
+        c.on_scenario(StubScenario(name="S1", status="passed"))
+        c.on_scenario_end(StubScenario(name="S1", status="passed"))
         c.on_feature_end(StubFeature(name="F1", status="passed"))
         c.on_feature(StubFeature(name="F2"))
+        c.on_scenario(StubScenario(name="S2", status="failed"))
+        c.on_scenario_end(StubScenario(name="S2", status="failed"))
         c.on_feature_end(StubFeature(name="F2", status="failed"))
         c.finalize()
 
@@ -412,3 +471,82 @@ class TestFinalize:
         assert stats.total_steps == 0
         assert stats.slowest_step_duration == 0.0
         assert stats.avg_step_duration == 0.0
+
+
+class TestNonStringAttributes:
+    """Regression tests for non-string attributes from Behave objects."""
+
+    def test_non_string_feature_name(self) -> None:
+        """Regression: non-string feature name should not crash or leak type."""
+        c = Collector()
+        c.on_feature(StubFeature(name=42))  # type: ignore[arg-type]
+        assert c.trace.features[0].name == "42"
+
+    def test_non_string_scenario_name(self) -> None:
+        """Regression: non-string scenario name should not crash or leak type."""
+        c = Collector()
+        c.on_feature(StubFeature(name="F"))
+        c.on_scenario(StubScenario(name=99))  # type: ignore[arg-type]
+        assert c.trace.features[0].scenarios[0].name == "99"
+
+    def test_non_string_step_name(self) -> None:
+        """Regression: non-string step name should not crash or leak type."""
+        c = Collector()
+        c.on_feature(StubFeature(name="F"))
+        c.on_scenario(StubScenario(name="S"))
+        c.on_step(StubStep(name=123))  # type: ignore[arg-type]
+        step = c.trace.features[0].scenarios[0].steps[0]
+        assert step.name == "123"
+
+    def test_non_string_step_keyword(self) -> None:
+        """Regression: non-string keyword should not crash on .strip()."""
+        c = Collector()
+        c.on_feature(StubFeature(name="F"))
+        c.on_scenario(StubScenario(name="S"))
+        c.on_step(StubStep(keyword=42))  # type: ignore[arg-type]
+        step = c.trace.features[0].scenarios[0].steps[0]
+        assert step.keyword == "42"
+
+    def test_non_string_rule_name(self) -> None:
+        """Regression: non-string rule name should not crash."""
+        c = Collector()
+
+        class WeirdRule:
+            name = 77  # type: ignore[assignment]
+
+        c.on_rule(WeirdRule())
+        c.on_feature(StubFeature(name="F"))
+        c.on_scenario(StubScenario(name="S"))
+        assert c.trace.features[0].scenarios[0].rule_name == "77"
+
+    def test_non_string_background_name(self) -> None:
+        """Regression: non-string background name/keyword should not crash."""
+        c = Collector()
+        c.on_feature(StubFeature(name="F", background=StubBackground(name=10, keyword=20)))  # type: ignore[arg-type]
+        bg = c.trace.features[0].background
+        assert bg is not None
+        assert bg.name == "10"
+        assert bg.keyword == "20"
+
+    def test_non_string_description_items(self) -> None:
+        """Regression: non-string items in description list should not crash join."""
+        c = Collector()
+        c.on_feature(StubFeature(name="F", description=[None, 42, "text"]))  # type: ignore[list-item]
+        assert "42" in c.trace.features[0].description
+        assert "text" in c.trace.features[0].description
+
+    def test_non_numeric_duration_does_not_crash(self) -> None:
+        """Regression: non-numeric duration string should not crash float()."""
+        c = Collector()
+        c.on_feature(StubFeature(duration="N/A"))  # type: ignore[arg-type]
+        c.on_feature_end(StubFeature(duration="N/A"))  # type: ignore[arg-type]
+        assert c.trace.features[0].duration == 0.0
+
+    def test_non_numeric_step_duration_does_not_crash(self) -> None:
+        """Regression: non-numeric step duration should not crash."""
+        c = Collector()
+        c.on_feature(StubFeature(name="F"))
+        c.on_scenario(StubScenario(name="S"))
+        c.on_step(StubStep(duration="fast"))  # type: ignore[arg-type]
+        step = c.trace.features[0].scenarios[0].steps[0]
+        assert step.duration == 0.0

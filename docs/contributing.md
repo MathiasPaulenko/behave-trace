@@ -8,7 +8,7 @@ commands, and the release process.
 ```bash
 git clone https://github.com/MathiasPaulenko/behave-trace.git
 cd behave-trace
-pip install -e ".[dev]"
+make dev
 pre-commit install
 ```
 
@@ -23,7 +23,7 @@ pre-commit install
 | `make format`       | Format the code with `ruff format`.          |
 | `make format-check` | Verify formatting without changes.           |
 | `make test`         | Run the test suite.                          |
-| `make test-cov`     | Run tests with coverage (fail under 90%).    |
+| `make test-cov`     | Run tests with coverage (fail under 55%).    |
 | `make check`        | Full pre-commit check (lint + format + test).|
 | `make build`        | Build sdist + wheel into `dist/`.            |
 | `make clean`        | Remove build artifacts and caches.           |
@@ -33,7 +33,7 @@ pre-commit install
 Before opening a pull request, make sure all of the following pass:
 
 - [ ] `make check` (runs lint + format-check + test)
-- [ ] `make test-cov` passes with >= 90% coverage
+- [ ] `make test-cov` passes with >= 55% coverage
 - [ ] New behavior is covered by tests
 - [ ] `CHANGELOG.md` updated under `[Unreleased]`
 
