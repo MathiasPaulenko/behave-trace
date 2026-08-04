@@ -7,6 +7,8 @@ failing scenarios with attachments.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 
 class Calculator:
     """A simple calculator with basic arithmetic operations."""
@@ -29,7 +31,7 @@ class Calculator:
         self.error = None
         self.history.append(f"Entered: {number}")
 
-    def _operate(self, op: str, func) -> float:  # type: ignore[no-untyped-def]
+    def _operate(self, op: str, func: Callable[[float, float], float]) -> float:
         result = func(self.first, self.second)
         self.result = result
         self.history.append(f"{self.first} {op} {self.second} = {result}")
