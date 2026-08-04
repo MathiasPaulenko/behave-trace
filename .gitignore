@@ -21,4 +21,3 @@ tmp-clean-venv/
 tmp-e2e/
 examples/*/trace.json
 site/
-ref/
