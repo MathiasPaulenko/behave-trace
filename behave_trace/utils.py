@@ -29,7 +29,7 @@ def safe_float(value: object, fallback: float = 0.0) -> float:
         if math.isnan(result) or math.isinf(result):
             return fallback
         return result
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return fallback
 
 

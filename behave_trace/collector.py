@@ -39,6 +39,48 @@ from .models import (
 from .utils import safe_float, safe_str
 
 
+def _join_description(value: Any) -> str:
+    """Join a description value into a single string.
+
+    Behave normally provides ``description`` as a list of strings (lines),
+    but some stubs or alternative runners may provide a plain string.
+    A bare string must not be iterated character-by-character.
+    """
+    if not value:
+        return ""
+    if isinstance(value, str):
+        return value
+    try:
+        return "\n".join(safe_str(d) for d in value)
+    except TypeError:
+        return safe_str(value)
+
+
+def _safe_iterable(value: Any) -> list[Any]:
+    """Return *value* as a list, or an empty list if not iterable.
+
+    Unlike ``_as_list`` in serializer.py, this handles non-list values
+    (e.g. integers, None) by returning ``[]`` instead of raising.
+    """
+    if value is None:
+        return []
+    try:
+        return list(value)
+    except TypeError:
+        return []
+
+
+def _safe_attr_str(value: Any) -> str:
+    """Convert a value to string, treating None as empty string.
+
+    Unlike ``safe_str``, which would turn None into "None",
+    this returns "" for None while preserving falsy values like 0 and False.
+    """
+    if value is None:
+        return ""
+    return safe_str(value)
+
+
 class Collector:
     """Builds a :class:`Trace` from formatter events.
 
@@ -135,12 +177,10 @@ class Collector:
     def on_feature(self, behave_feature: Any) -> Feature:
         """Start a new feature."""
         feature = Feature(
-            name=safe_str(getattr(behave_feature, "name", "") or ""),
-            description="\n".join(
-                safe_str(d) for d in getattr(behave_feature, "description", []) or []
-            ),
+            name=_safe_attr_str(getattr(behave_feature, "name", None)),
+            description=_join_description(getattr(behave_feature, "description", [])),
             location=safe_str(getattr(behave_feature, "location", "")),
-            tags=[safe_str(t) for t in getattr(behave_feature, "tags", []) or []],
+            tags=[safe_str(t) for t in _safe_iterable(getattr(behave_feature, "tags", []))],
         )
         bg = getattr(behave_feature, "background", None)
         if bg:
@@ -163,7 +203,7 @@ class Collector:
     # ------------------------------------------------------------------
 
     def on_rule(self, behave_rule: Any) -> None:
-        self._current_rule_name = safe_str(getattr(behave_rule, "name", "") or "")
+        self._current_rule_name = _safe_attr_str(getattr(behave_rule, "name", None))
 
     # ------------------------------------------------------------------
     # Scenario lifecycle
@@ -175,12 +215,10 @@ class Collector:
         is_outline = scenario_type in ("scenario_outline", "outline")
 
         scenario = Scenario(
-            name=safe_str(getattr(behave_scenario, "name", "") or ""),
-            description="\n".join(
-                safe_str(d) for d in getattr(behave_scenario, "description", []) or []
-            ),
+            name=_safe_attr_str(getattr(behave_scenario, "name", None)),
+            description=_join_description(getattr(behave_scenario, "description", [])),
             location=safe_str(getattr(behave_scenario, "location", "")),
-            tags=[safe_str(t) for t in getattr(behave_scenario, "tags", []) or []],
+            tags=[safe_str(t) for t in _safe_iterable(getattr(behave_scenario, "tags", []))],
             feature_name=self._current_feature.name if self._current_feature else "",
             rule_name=self._current_rule_name,
             is_outline=is_outline,
@@ -259,13 +297,14 @@ class Collector:
 
     def _make_step(self, behave_step: Any) -> Step:
         """Convert a Behave step object into a Step model."""
+        raw_text = getattr(behave_step, "text", None)
         step = Step(
-            keyword=safe_str(getattr(behave_step, "keyword", "") or "").strip(),
-            name=safe_str(getattr(behave_step, "name", "") or ""),
+            keyword=_safe_attr_str(getattr(behave_step, "keyword", None)).strip(),
+            name=_safe_attr_str(getattr(behave_step, "name", None)),
             status=normalize_status(getattr(behave_step, "status", None)),
             duration=safe_float(getattr(behave_step, "duration", 0.0) or 0.0),
             location=safe_str(getattr(behave_step, "location", "")),
-            text=getattr(behave_step, "text", None),
+            text=safe_str(raw_text) if raw_text is not None else None,
         )
 
         # Data table
@@ -280,7 +319,7 @@ class Collector:
                 step.table = None
 
         # Error info
-        error_message = getattr(behave_step, "error_message", None) or ""
+        error_message = _safe_attr_str(getattr(behave_step, "error_message", None))
         exception = getattr(behave_step, "exception", None)
         if error_message or exception:
             step.error = ErrorInfo(
@@ -290,20 +329,20 @@ class Collector:
             )
 
         # Embeddings → artifacts (behave-kit attach() or native embeddings)
-        for embedding in getattr(behave_step, "embeddings", []) or []:
+        for embedding in _safe_iterable(getattr(behave_step, "embeddings", [])):
             artifact = self._make_artifact(embedding)
             if artifact:
                 step.artifacts.append(artifact)
 
         # Logs
-        step.logs = [safe_str(line) for line in getattr(behave_step, "log", []) or []]
+        step.logs = [safe_str(line) for line in _safe_iterable(getattr(behave_step, "log", []))]
         return step
 
     def _make_artifact(self, embedding: Any) -> Artifact | None:
         """Convert a Behave embedding into an Artifact."""
-        mime_type = safe_str(getattr(embedding, "mime_type", "") or "")
-        name = safe_str(getattr(embedding, "name", "") or "")
-        data_base64 = safe_str(getattr(embedding, "data", "") or "")
+        mime_type = _safe_attr_str(getattr(embedding, "mime_type", None))
+        name = _safe_attr_str(getattr(embedding, "name", None))
+        data_base64 = _safe_attr_str(getattr(embedding, "data", None))
 
         if not data_base64 and not name:
             return None
@@ -328,11 +367,11 @@ class Collector:
     def _make_background(self, behave_background: Any) -> Background:
         """Convert a Behave background object into a Background model."""
         bg = Background(
-            name=safe_str(getattr(behave_background, "name", "") or ""),
-            keyword=safe_str(getattr(behave_background, "keyword", "Background") or "Background"),
+            name=_safe_attr_str(getattr(behave_background, "name", None)),
+            keyword=_safe_attr_str(getattr(behave_background, "keyword", None)) or "Background",
             location=safe_str(getattr(behave_background, "location", "")),
         )
-        for behave_step in getattr(behave_background, "steps", []) or []:
+        for behave_step in _safe_iterable(getattr(behave_background, "steps", [])):
             bg.steps.append(self._make_step(behave_step))
         return bg
 
@@ -388,7 +427,7 @@ class Collector:
         total_screenshots = 0
         total_logs = 0
         all_step_durations: list[float] = []
-        slowest_duration = 0.0
+        slowest_duration = float("-inf")
         slowest_name = ""
 
         for feature in self.trace.features:
@@ -409,7 +448,7 @@ class Collector:
         stats.total_artifacts = total_artifacts
         stats.total_screenshots = total_screenshots
         stats.total_logs = total_logs
-        stats.slowest_step_duration = slowest_duration
+        stats.slowest_step_duration = slowest_duration if slowest_duration != float("-inf") else 0.0
         stats.slowest_step_name = slowest_name
         if all_step_durations:
             stats.avg_step_duration = sum(all_step_durations) / len(all_step_durations)

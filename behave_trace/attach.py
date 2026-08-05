@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import html as html_module
 from pathlib import Path
 from typing import Any
 
 from .models import ARTIFACT_DOM, ARTIFACT_NETWORK, ARTIFACT_SCREENSHOT, ARTIFACT_TEXT, Artifact
+from .serializer import _sanitize_floats
 
 
 def _find_formatter(context: Any) -> Any:
@@ -124,12 +126,16 @@ def attach_dom(context: Any, source: Any, name: str = "dom.html") -> None:
         return
 
     # Inject <base> tag so relative URLs resolve in the viewer's iframe
-    if base_url and "<base " not in html:
-        base_tag = f'<base href="{base_url}">'
+    if base_url and "<base" not in html:
+        escaped_url = html_module.escape(base_url, quote=True)
+        base_tag = f'<base href="{escaped_url}">'
         if "<head>" in html:
             html = html.replace("<head>", f"<head>{base_tag}", 1)
         elif "<head " in html:
-            html = html.replace("<head ", f"<head>{base_tag} ", 1)
+            # Insert after the opening <head ...> tag to preserve attributes
+            close_idx = html.find(">", html.find("<head "))
+            if close_idx != -1:
+                html = html[: close_idx + 1] + base_tag + html[close_idx + 1 :]
         else:
             html = base_tag + html
 
@@ -199,7 +205,7 @@ def attach_network(context: Any, request_data: Any, name: str = "network") -> No
             type=ARTIFACT_NETWORK,
             name=name,
             mime_type="application/json",
-            text=_json.dumps(payload, default=str),
+            text=_json.dumps(_sanitize_floats(payload), default=str, allow_nan=False),
         )
     )
 

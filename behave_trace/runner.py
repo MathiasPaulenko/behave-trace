@@ -6,6 +6,7 @@ enabling the ``behave-trace run`` command (equivalent to ``playwright test --ui`
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -103,8 +104,6 @@ class BehaveRunner:
         env = None
         candidate_root = Path(__file__).resolve().parent.parent
         if (candidate_root / "behave_trace" / "__init__.py").exists():
-            import os
-
             env = os.environ.copy()
             existing = env.get("PYTHONPATH", "")
             if existing:

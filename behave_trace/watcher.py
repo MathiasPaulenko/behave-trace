@@ -131,7 +131,8 @@ class FileWatcher:
             files = sorted(self._pending_files)
             self._pending_files.clear()
             self._debounce_timer = None
-        self._callback(files)
+        with contextlib.suppress(Exception):
+            self._callback(files)
 
     # ------------------------------------------------------------------
     # Polling fallback
@@ -166,7 +167,8 @@ class FileWatcher:
                     del snapshots[f]
 
             if changed:
-                self._callback(changed)
+                with contextlib.suppress(Exception):
+                    self._callback(changed)
 
     def _scan_files(self) -> list[Path]:
         if not self._directory.exists():

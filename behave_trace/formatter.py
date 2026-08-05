@@ -45,6 +45,12 @@ class TraceFormatter(Formatter):  # type: ignore[misc]
     # ------------------------------------------------------------------
 
     def feature(self, feature: Any) -> None:
+        # Finalize the previous feature if it hasn't been finalized yet
+        if self._behave_scenario is not None:
+            self._collector.on_scenario_end(self._behave_scenario)
+            self._behave_scenario = None
+        if self._behave_feature is not None:
+            self._collector.on_feature_end(self._behave_feature)
         self._behave_feature = feature
         self._collector.on_feature(feature)
 
@@ -83,7 +89,7 @@ class TraceFormatter(Formatter):  # type: ignore[misc]
         trace = self._collector.finalize()
         try:
             Serializer.save(trace, self._output_path)
-        except OSError as exc:
+        except (OSError, TypeError, ValueError) as exc:
             sys.stderr.write(f"Error: cannot write trace file {self._output_path}: {exc}\n")
             return
         with contextlib.suppress(Exception):
