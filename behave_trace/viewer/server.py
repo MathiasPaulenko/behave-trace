@@ -13,6 +13,7 @@ import contextlib
 import gzip
 import json
 import queue
+import socket
 import threading
 import time
 from collections.abc import Callable
@@ -22,6 +23,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from behave_trace.models import Trace, as_dict
+from behave_trace.serializer import _sanitize_floats
 
 _ASSETS_DIR = Path(__file__).parent.parent / "assets"
 
@@ -62,6 +64,19 @@ _DEFAULT_CONTEXT_LINES = 5
 _SSE_HEARTBEAT_S = 15.0
 
 
+def _safe_int(value: Any, fallback: int = 0) -> int:
+    """Convert a value to int without raising exceptions.
+
+    Returns *fallback* if the value is None or cannot be converted.
+    """
+    if value is None:
+        return fallback
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return fallback
+
+
 class _ServerState:
     """Mutable state shared between the server and request handlers."""
 
@@ -82,6 +97,7 @@ class _ServerState:
         self.progress_start: float | None = None
         self.sse_clients: list[queue.Queue[dict[str, Any]]] = []
         self.clients_lock = threading.Lock()
+        self.running_lock = threading.Lock()
 
     def notify(self, event: dict[str, Any]) -> None:
         """Push an event to all connected SSE clients."""
@@ -98,6 +114,14 @@ class _ServerState:
 
     def set_running(self, running: bool) -> None:
         """Set the running state and notify clients."""
+        with self.running_lock:
+            self._set_running_unlocked(running)
+
+    def _set_running_unlocked(self, running: bool) -> None:
+        """Set running state without acquiring the lock.
+
+        Caller must hold running_lock.
+        """
         self.running = running
         if running:
             self.progress = {"completed": 0, "total": 0}
@@ -143,7 +167,9 @@ class ViewerServer:
         self.rerun_callback = rerun_callback
         self._httpd: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
-        self._trace_json: bytes = json.dumps(as_dict(self.trace), default=str).encode()
+        self._trace_json: bytes = json.dumps(
+            _sanitize_floats(as_dict(self.trace)), default=str, allow_nan=False
+        ).encode()
         self._base_dir: Path = Path(trace.environment.cwd or ".").resolve()
         self._state = _ServerState(
             self._trace_json,
@@ -196,6 +222,14 @@ class ViewerServer:
                 elif parsed.path == "/api/progress":
                     self._handle_progress(state)
                 else:
+                    # Consume request body to keep HTTP/1.1 keep-alive aligned
+                    try:
+                        content_length = int(self.headers.get("Content-Length", 0))
+                    except (ValueError, TypeError):
+                        self.close_connection = True
+                        content_length = 0
+                    if content_length > 0:
+                        self.rfile.read(content_length)
                     self._send_json_response({"error": "Not found"}, status=404)
 
             def _handle_progress(self, sstate: _ServerState) -> None:
@@ -203,6 +237,7 @@ class ViewerServer:
                 try:
                     content_length = int(self.headers.get("Content-Length", 0))
                 except (ValueError, TypeError):
+                    self.close_connection = True
                     content_length = 0
                 body = self.rfile.read(content_length) if content_length > 0 else b"{}"
                 try:
@@ -215,15 +250,16 @@ class ViewerServer:
                     self._send_json_response({"error": "Expected JSON object"}, status=400)
                     return
 
-                completed = payload.get("completed", sstate.progress["completed"])
-                total = payload.get("total", sstate.progress["total"])
+                completed = _safe_int(payload.get("completed", sstate.progress["completed"]))
+                total = _safe_int(payload.get("total", sstate.progress["total"]))
                 sstate.progress = {
-                    "completed": int(completed),
-                    "total": int(total),
+                    "completed": completed,
+                    "total": total,
                 }
+                event_type = str(payload.get("event", "scenario_completed"))
                 sstate.notify(
                     {
-                        "type": "scenario_completed",
+                        "type": event_type,
                         "completed": sstate.progress["completed"],
                         "total": sstate.progress["total"],
                         "scenario_name": payload.get("scenario_name", ""),
@@ -236,6 +272,7 @@ class ViewerServer:
                 try:
                     content_length = int(self.headers.get("Content-Length", 0))
                 except (ValueError, TypeError):
+                    self.close_connection = True
                     content_length = 0
                 body = self.rfile.read(content_length) if content_length > 0 else b"{}"
                 try:
@@ -263,15 +300,26 @@ class ViewerServer:
                 cb: Callable[[list[str] | None], None] | None,
             ) -> None:
                 """Handle POST /api/run — execute behave from scratch (all tests)."""
+                # Consume request body to keep HTTP/1.1 keep-alive aligned
+                try:
+                    content_length = int(self.headers.get("Content-Length", 0))
+                except (ValueError, TypeError):
+                    self.close_connection = True
+                    content_length = 0
+                if content_length > 0:
+                    self.rfile.read(content_length)
+
                 if cb is None:
                     self._send_json_response(
                         {"error": "Run not available (no callback configured)"},
                         status=501,
                     )
                     return
-                if sstate.running:
-                    self._send_json_response({"error": "Already running"}, status=409)
-                    return
+                with sstate.running_lock:
+                    if sstate.running:
+                        self._send_json_response({"error": "Already running"}, status=409)
+                        return
+                    sstate._set_running_unlocked(True)
                 self._send_json_response({"status": "accepted"})
                 thread = threading.Thread(target=cb, args=(None,), daemon=True)
                 thread.start()
@@ -282,18 +330,20 @@ class ViewerServer:
                 cb: Callable[[list[str] | None], None] | None,
             ) -> None:
                 """Handle POST /api/rerun — re-execute behave with optional filter."""
+                # Consume request body first to keep HTTP/1.1 keep-alive aligned
+                try:
+                    content_length = int(self.headers.get("Content-Length", 0))
+                except (ValueError, TypeError):
+                    self.close_connection = True
+                    content_length = 0
+                body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+
                 if cb is None:
                     self._send_json_response(
                         {"error": "Re-run not available (no callback configured)"},
                         status=501,
                     )
                     return
-
-                try:
-                    content_length = int(self.headers.get("Content-Length", 0))
-                except (ValueError, TypeError):
-                    content_length = 0
-                body = self.rfile.read(content_length) if content_length > 0 else b"{}"
                 try:
                     payload = json.loads(body)
                 except json.JSONDecodeError:
@@ -316,7 +366,14 @@ class ViewerServer:
 
                 scenario_names: list[str] | None = None
                 if filter_type == "failed" and isinstance(scenarios, list):
-                    scenario_names = [str(s) for s in scenarios if s]
+                    scenario_names = [str(s) for s in scenarios if s is not None]
+
+                # Atomically check-and-set running to prevent two concurrent runs
+                with sstate.running_lock:
+                    if sstate.running:
+                        self._send_json_response({"error": "Already running"}, status=409)
+                        return
+                    sstate._set_running_unlocked(True)
 
                 # Respond immediately; the callback runs in a thread
                 self._send_json_response({"status": "accepted"})
@@ -349,7 +406,7 @@ class ViewerServer:
                 }
                 try:
                     self._sse_send(initial)
-                except ConnectionError:
+                except (ConnectionError, OSError):
                     with sstate.clients_lock:
                         if client_queue in sstate.sse_clients:
                             sstate.sse_clients.remove(client_queue)
@@ -364,7 +421,7 @@ class ViewerServer:
                             # Send heartbeat to keep connection alive
                             self.wfile.write(b": heartbeat\n\n")
                             self.wfile.flush()
-                except ConnectionError:
+                except (ConnectionError, OSError):
                     pass
                 finally:
                     with sstate.clients_lock:
@@ -494,7 +551,11 @@ class ViewerServer:
                     self.send_error(404)
                     return
                 mime = _MIME_TYPES.get(path.suffix, "application/octet-stream")
-                data = path.read_bytes()
+                try:
+                    data = path.read_bytes()
+                except OSError:
+                    self.send_error(404)
+                    return
                 if mime in _COMPRESSIBLE_TYPES:
                     accept_gzip = "gzip" in (self.headers.get("Accept-Encoding", ""))
                     if accept_gzip and len(data) > _GZIP_THRESHOLD:
@@ -515,7 +576,30 @@ class ViewerServer:
             def log_message(self, *args: Any) -> None:
                 pass
 
-        self._httpd = ThreadingHTTPServer(("127.0.0.1", self.port), Handler)
+        class _QuietHTTPServer(ThreadingHTTPServer):
+            """ThreadingHTTPServer that suppresses tracebacks on client disconnect."""
+
+            def handle_error(self, request: Any, client_address: Any) -> None:
+                import sys
+
+                exc = sys.exc_info()[1]
+                if isinstance(exc, (ConnectionError, OSError)):
+                    return
+                super().handle_error(request, client_address)
+
+        # Pre-check port availability to avoid hanging on Windows where
+        # ThreadingHTTPServer may block instead of raising OSError.
+        # On Windows, SO_REUSEADDR allows binding even when another socket
+        # is listening, so we also check with connect_ex.
+        if self.port != 0:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                probe.settimeout(0.5)
+                if probe.connect_ex(("127.0.0.1", self.port)) == 0:
+                    raise OSError(
+                        f"Port {self.port} is already in use"
+                    )
+
+        self._httpd = _QuietHTTPServer(("127.0.0.1", self.port), Handler)
         actual_port = self._httpd.server_address[1]
         self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
         self._thread.start()
@@ -527,21 +611,38 @@ class ViewerServer:
             self._thread.join()
 
     def stop(self) -> None:
-        """Stop the server."""
+        """Stop the server and wait for the background thread to finish."""
         if self._httpd is not None:
             self._httpd.shutdown()
             self._httpd.server_close()
             self._httpd = None
+        if self._thread is not None and self._thread.is_alive():
+            self._thread.join(timeout=5)
+        self._thread = None
 
     def update_trace(self, trace: Trace) -> None:
         """Update the trace served by this server and notify SSE clients."""
         self.trace = trace
-        trace_json = json.dumps(as_dict(trace), default=str).encode()
+        trace_json = json.dumps(
+            _sanitize_floats(as_dict(trace)), default=str, allow_nan=False
+        ).encode()
         self._state.update_trace(trace_json)
 
     def set_running(self, running: bool) -> None:
         """Set the running state and notify SSE clients."""
         self._state.set_running(running)
+
+    def try_set_running(self, running: bool) -> bool:
+        """Atomically set running state if not already running.
+
+        Returns True if the state was set, False if already running.
+        Used by the watch loop to prevent concurrent runs.
+        """
+        with self._state.running_lock:
+            if self._state.running:
+                return False
+            self._state._set_running_unlocked(running)
+            return True
 
     def set_auto_run(self, auto_run: bool) -> None:
         """Set the auto-run state and notify SSE clients."""
@@ -551,6 +652,10 @@ class ViewerServer:
     def get_auto_run(self) -> bool:
         """Return the current auto-run state."""
         return self._state.auto_run
+
+    def is_running(self) -> bool:
+        """Return whether a run is currently in progress."""
+        return self._state.running
 
     def notify(self, event: dict[str, Any]) -> None:
         """Push a custom event to all SSE clients."""
