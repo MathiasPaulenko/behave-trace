@@ -45,6 +45,8 @@ not *why*. behave-trace gives you:
 - **Breadcrumb navigation** — "Feature > Scenario" path in the detail panel.
 - **Live progress** — Server-Sent Events stream updates while running Behave from the UI.
 - **Persistent UI state** — sort order and viewer toggles saved in `localStorage`.
+- **Port conflict detection** — clear error message instead of hanging when the
+  requested port is already in use (especially on Windows).
 
 ## Quick example
 

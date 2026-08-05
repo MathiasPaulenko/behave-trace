@@ -25,6 +25,11 @@ behave-trace show trace.json
 behave-trace show trace.json --port 8080 --no-browser
 ```
 
+!!! note
+    If the specified port is already in use, behave-trace prints a clear error
+    message instead of hanging. Use `--port 0` (the default) to let the OS
+    pick a free port automatically.
+
 ## `behave-trace run`
 
 Run Behave with the trace formatter, then open the viewer.
@@ -69,7 +74,7 @@ behave-trace --version
 ```
 
 ```text
-1.0.0
+1.3.0
 ```
 
 ## `python -m behave_trace`

@@ -63,8 +63,10 @@ to polling. Powers the `--watch` mode.
 
 ### Viewer (`viewer/`)
 
-- `server.py` — `ThreadingHTTPServer` serving the SPA and a `/api/trace`
-  endpoint.
+- `server.py` — `ThreadingHTTPServer` serving the SPA, a `/api/trace`
+  endpoint, `/api/run` and `/api/rerun` for triggering executions, and
+  `/api/events` for Server-Sent Events (live progress). Pre-checks port
+  availability before binding to avoid hangs on Windows.
 - `browser.py` — Opens the browser in Chrome app mode (borderless window).
 
 ### Assets (`assets/`)

@@ -72,6 +72,8 @@ SPA showing features, scenarios, steps, screenshots, and errors.
   are running from the viewer.
 - **Theme and state persistence** — sidebar, sort, and snapshot diff mode are
   remembered across sessions.
+- **Port conflict detection** — clear error message instead of hanging when the
+  requested port is already in use (especially on Windows).
 
 ## Capturing attachments
 
