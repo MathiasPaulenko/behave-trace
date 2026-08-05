@@ -191,6 +191,7 @@ class TestCmdShowUnit:
             mock.patch("behave_trace.serializer.Serializer.load", return_value=trace),
             mock.patch("behave_trace.viewer.server.ViewerServer", return_value=mock_server),
             mock.patch("behave_trace.viewer.browser.open_app"),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event.wait", side_effect=KeyboardInterrupt),
         ):
             result = _cmd_show(args)
@@ -218,6 +219,7 @@ class TestCmdShowUnit:
             mock.patch("behave_trace.serializer.Serializer.load", return_value=trace),
             mock.patch("behave_trace.viewer.server.ViewerServer", return_value=mock_server),
             mock.patch("behave_trace.viewer.browser.open_app") as mock_open,
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event.wait", side_effect=KeyboardInterrupt),
         ):
             _cmd_show(args)
@@ -262,6 +264,7 @@ class TestCmdRunUnit:
             mock.patch("behave_trace.serializer.Serializer.load", side_effect=ValueError("bad")),
             mock.patch("behave_trace.viewer.server.ViewerServer", return_value=mock_server),
             mock.patch("behave_trace.viewer.browser.open_app"),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event.wait", side_effect=KeyboardInterrupt),
         ):
             result = _cmd_run(args)
@@ -295,6 +298,7 @@ class TestCmdRunUnit:
             mock.patch("behave_trace.viewer.server.ViewerServer", return_value=mock_server),
             mock.patch("behave_trace.viewer.browser.open_app"),
             mock.patch("behave_trace.watcher.FileWatcher") as mock_watcher_cls,
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event.wait", side_effect=KeyboardInterrupt),
         ):
             mock_watcher = mock.Mock()
@@ -355,6 +359,7 @@ class TestCmdRunUnit:
             mock.patch("behave_trace.serializer.Serializer.load", return_value=trace),
             mock.patch("behave_trace.viewer.server.ViewerServer", return_value=mock_server),
             mock.patch("behave_trace.viewer.browser.open_app"),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event.wait", side_effect=KeyboardInterrupt),
         ):
             result = _cmd_run(args)
@@ -392,6 +397,7 @@ class TestCmdRunUnit:
             mock.patch("behave_trace.serializer.Serializer.load", return_value=trace),
             mock.patch("behave_trace.viewer.server.ViewerServer", return_value=mock_server),
             mock.patch("behave_trace.viewer.browser.open_app") as mock_open,
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event.wait", side_effect=KeyboardInterrupt),
         ):
             _cmd_run(args)
@@ -415,6 +421,7 @@ class TestCmdRunUnit:
             mock.patch("behave_trace.serializer.Serializer.load", side_effect=ValueError("bad")),
             mock.patch("behave_trace.viewer.server.ViewerServer", return_value=mock_server),
             mock.patch("behave_trace.viewer.browser.open_app"),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event.wait", side_effect=KeyboardInterrupt),
         ):
             result = _cmd_run(args)
@@ -444,6 +451,7 @@ class TestCmdRunUnit:
             mock.patch("behave_trace.serializer.Serializer.load", side_effect=ValueError("bad")),
             mock.patch("behave_trace.viewer.server.ViewerServer", return_value=mock_server),
             mock.patch("behave_trace.viewer.browser.open_app"),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event.wait", side_effect=KeyboardInterrupt),
         ):
             result = _cmd_run(args)
@@ -475,6 +483,7 @@ class TestWatchLoopUnit:
 
         with (
             mock.patch("behave_trace.watcher.FileWatcher", return_value=mock_watcher),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event.wait", side_effect=KeyboardInterrupt),
         ):
             result = _watch_loop(args, tmp_path, trace_path, mock_runner, mock_server)
@@ -495,6 +504,7 @@ class TestWatchLoopUnit:
 
         with (
             mock.patch("behave_trace.watcher.FileWatcher", return_value=mock_watcher),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event.wait", side_effect=KeyboardInterrupt),
         ):
             result = _watch_loop(args, tmp_path, trace_path, mock_runner, None)
@@ -523,6 +533,7 @@ class TestWatchLoopUnit:
 
         with (
             mock.patch("behave_trace.watcher.FileWatcher", side_effect=capture_watcher),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event") as mock_event_cls,
         ):
             # Let the event.wait() block, then trigger on_change, then stop
@@ -557,6 +568,7 @@ class TestWatchLoopUnit:
 
         with (
             mock.patch("behave_trace.watcher.FileWatcher", side_effect=capture_watcher),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event") as mock_event_cls,
         ):
             stop_event = mock.Mock()
@@ -609,6 +621,7 @@ class TestWatchLoopUnit:
         with (
             mock.patch("behave_trace.watcher.FileWatcher", side_effect=capture_watcher),
             mock.patch("behave_trace.serializer.Serializer.load", return_value=trace),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event") as mock_event_cls,
         ):
             stop_event = mock.Mock()
@@ -658,6 +671,7 @@ class TestWatchLoopUnit:
 
         with (
             mock.patch("behave_trace.watcher.FileWatcher", side_effect=capture_watcher),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event") as mock_event_cls,
         ):
             stop_event = mock.Mock()
@@ -700,6 +714,7 @@ class TestWatchLoopUnit:
 
         with (
             mock.patch("behave_trace.watcher.FileWatcher", side_effect=capture_watcher),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event") as mock_event_cls,
         ):
             stop_event = mock.Mock()
@@ -752,6 +767,7 @@ class TestWatchLoopUnit:
                 "behave_trace.serializer.Serializer.load",
                 side_effect=ValueError("bad json"),
             ),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event") as mock_event_cls,
         ):
             stop_event = mock.Mock()
@@ -819,6 +835,7 @@ class TestRerunCallback:
             mock.patch("behave_trace.serializer.Serializer.load", return_value=trace),
             mock.patch("behave_trace.viewer.server.ViewerServer", side_effect=original_init),
             mock.patch("behave_trace.viewer.browser.open_app"),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event.wait", side_effect=KeyboardInterrupt),
         ):
             _cmd_run(args)
@@ -861,6 +878,7 @@ class TestRerunCallback:
             mock.patch("behave_trace.serializer.Serializer.load", return_value=trace),
             mock.patch("behave_trace.viewer.server.ViewerServer", return_value=mock_server),
             mock.patch("behave_trace.viewer.browser.open_app"),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event.wait", side_effect=KeyboardInterrupt),
         ):
             _cmd_run(args)

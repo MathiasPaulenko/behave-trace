@@ -180,6 +180,7 @@ class TestRerunCallbackDirect:
             mock.patch("behave_trace.serializer.Serializer.load", return_value=trace),
             mock.patch("behave_trace.viewer.server.ViewerServer", side_effect=capture_server),
             mock.patch("behave_trace.viewer.browser.open_app"),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event.wait", side_effect=KeyboardInterrupt),
         ):
             _cmd_run(args)
@@ -238,6 +239,7 @@ class TestRerunCallbackDirect:
             mock.patch("behave_trace.serializer.Serializer.load", return_value=trace),
             mock.patch("behave_trace.viewer.server.ViewerServer", side_effect=capture_server),
             mock.patch("behave_trace.viewer.browser.open_app"),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event.wait", side_effect=KeyboardInterrupt),
         ):
             _cmd_run(args)
@@ -290,6 +292,7 @@ class TestRerunCallbackDirect:
             mock.patch("behave_trace.serializer.Serializer.load", return_value=trace),
             mock.patch("behave_trace.viewer.server.ViewerServer", side_effect=capture_server),
             mock.patch("behave_trace.viewer.browser.open_app"),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event.wait", side_effect=KeyboardInterrupt),
         ):
             _cmd_run(args)
@@ -349,6 +352,7 @@ class TestRerunCallbackDirect:
             mock.patch("behave_trace.serializer.Serializer.load", side_effect=load_side_effect),
             mock.patch("behave_trace.viewer.server.ViewerServer", side_effect=capture_server),
             mock.patch("behave_trace.viewer.browser.open_app"),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event.wait", side_effect=KeyboardInterrupt),
         ):
             _cmd_run(args)
@@ -395,6 +399,7 @@ class TestRerunCallbackDirect:
             mock.patch("behave_trace.serializer.Serializer.load", return_value=trace),
             mock.patch("behave_trace.viewer.server.ViewerServer", side_effect=capture_server),
             mock.patch("behave_trace.viewer.browser.open_app"),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event.wait", side_effect=KeyboardInterrupt),
         ):
             _cmd_run(args)
@@ -438,6 +443,7 @@ class TestRerunCallbackDirect:
             mock.patch("behave_trace.serializer.Serializer.load", return_value=trace),
             mock.patch("behave_trace.viewer.server.ViewerServer", side_effect=capture_server),
             mock.patch("behave_trace.viewer.browser.open_app"),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event.wait", side_effect=KeyboardInterrupt),
         ):
             _cmd_run(args)
@@ -487,6 +493,7 @@ class TestRerunCallbackDirect:
             mock.patch("behave_trace.serializer.Serializer.load", return_value=trace),
             mock.patch("behave_trace.viewer.server.ViewerServer", side_effect=capture_server),
             mock.patch("behave_trace.viewer.browser.open_app"),
+            mock.patch("sys.platform", "win32"),
             mock.patch("threading.Event.wait", side_effect=KeyboardInterrupt),
         ):
             _cmd_run(args)
