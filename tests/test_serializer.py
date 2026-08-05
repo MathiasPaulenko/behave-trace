@@ -185,6 +185,24 @@ class TestLoad:
         with pytest.raises(json.JSONDecodeError):
             Serializer.load(path)
 
+    def test_utf8_bom_handled(self, tmp_path: Path) -> None:
+        """Regression: UTF-8 BOM in trace file caused JSONDecodeError.
+
+        Windows editors (Notepad, PowerShell) often prepend a UTF-8 BOM.
+        Using utf-8-sig encoding for reading strips it transparently.
+        """
+        import codecs
+
+        trace = make_trace()
+        path = tmp_path / "trace.json"
+        Serializer.save(trace, path)
+        # Re-write with BOM
+        raw = path.read_text(encoding="utf-8")
+        path.write_bytes(codecs.BOM_UTF8 + raw.encode("utf-8"))
+        loaded = Serializer.load(path)
+        assert loaded.version == trace.version
+        assert len(loaded.features) == 1
+
     def test_list_root_raises_value_error(self, tmp_path: Path) -> None:
         """Regression: non-dict JSON root should raise ValueError, not crash."""
         path = tmp_path / "bad.json"
@@ -1000,3 +1018,131 @@ class TestIntFieldCoercion:
         assert trace.stats.total_features == 0
         assert trace.stats.total_scenarios == 0
         assert trace.stats.total_steps == 0
+
+    def test_by_status_string_values_coerced_to_int(self, tmp_path: Path) -> None:
+        """Regression: ``by_status`` dict values were not converted to int
+        during deserialization, causing ``TypeError`` in ``pass_rate``
+        when values were strings like ``"1"`` instead of ``1``.
+        """
+        data = {
+            "version": "1",
+            "created_at": "2024-01-01T00:00:00",
+            "features": [],
+            "environment": {},
+            "stats": {
+                "total_features": 1,
+                "total_scenarios": 2,
+                "total_steps": 4,
+                "by_status": {"passed": "2", "failed": "1"},
+            },
+        }
+        path = tmp_path / "trace.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        trace = Serializer.load(path)
+        assert isinstance(trace.stats.by_status["passed"], int)
+        assert isinstance(trace.stats.by_status["failed"], int)
+        assert trace.stats.by_status["passed"] == 2
+        assert trace.stats.by_status["failed"] == 1
+        # pass_rate should not raise TypeError
+        _ = trace.stats.pass_rate
+
+    def test_step_text_non_string_coerced(self, tmp_path: Path) -> None:
+        """Regression: non-string step text was stored as-is, breaking
+        JSON serialization. Now coerced to string."""
+        raw = _minimal_trace()
+        raw["features"][0]["scenarios"][0]["steps"].append(
+            {"keyword": "Given", "name": "step", "text": 42}
+        )
+        path = tmp_path / "trace.json"
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        loaded = Serializer.load(path)
+        step = loaded.features[0].scenarios[0].steps[0]
+        assert step.text == "42"
+        assert isinstance(step.text, str)
+
+    def test_artifact_text_non_string_coerced(self, tmp_path: Path) -> None:
+        """Regression: non-string artifact text was stored as-is."""
+        raw = _minimal_trace()
+        raw["features"][0]["scenarios"][0]["steps"].append(
+            {"keyword": "Given", "name": "step", "artifacts": [{"text": 99}]}
+        )
+        path = tmp_path / "trace.json"
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        loaded = Serializer.load(path)
+        artifact = loaded.features[0].scenarios[0].steps[0].artifacts[0]
+        assert artifact.text == "99"
+        assert isinstance(artifact.text, str)
+
+    def test_tags_non_string_items_coerced(self, tmp_path: Path) -> None:
+        """Regression: non-string tag items were stored as-is."""
+        raw = _minimal_trace()
+        raw["features"][0]["tags"] = [1, True, "smoke"]
+        raw["features"][0]["scenarios"][0]["tags"] = [42, "fast"]
+        path = tmp_path / "trace.json"
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        loaded = Serializer.load(path)
+        assert loaded.features[0].tags == ["1", "True", "smoke"]
+        assert loaded.features[0].scenarios[0].tags == ["42", "fast"]
+
+    def test_table_headings_non_string_coerced(self, tmp_path: Path) -> None:
+        """Regression: non-string table headings were stored as-is."""
+        raw = _minimal_trace()
+        raw["features"][0]["scenarios"][0]["steps"].append(
+            {"keyword": "Given", "name": "step", "table": {"headings": [1, True], "rows": [[2, 3]]}}
+        )
+        path = tmp_path / "trace.json"
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        loaded = Serializer.load(path)
+        table = loaded.features[0].scenarios[0].steps[0].table
+        assert table is not None
+        assert table.headings == ["1", "True"]
+        assert table.rows == [["2", "3"]]
+
+    def test_env_vars_non_string_coerced(self, tmp_path: Path) -> None:
+        """Regression: non-string env_vars values were stored as-is."""
+        data = {
+            "version": "1",
+            "created_at": "2024-01-01T00:00:00",
+            "features": [],
+            "environment": {"env_vars": {"PORT": 8080, "DEBUG": True}},
+            "stats": {},
+        }
+        path = tmp_path / "trace.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        loaded = Serializer.load(path)
+        assert loaded.environment.env_vars["PORT"] == "8080"
+        assert loaded.environment.env_vars["DEBUG"] == "True"
+
+    def test_logs_non_string_non_dict_coerced(self, tmp_path: Path) -> None:
+        """Regression: non-string, non-dict log items were stored as-is.
+        Now coerced to string; dicts and strings preserved."""
+        raw = _minimal_trace()
+        raw["features"][0]["scenarios"][0]["steps"].append(
+            {"keyword": "Given", "name": "step", "logs": [42, "hello", {"level": "info"}]}
+        )
+        path = tmp_path / "trace.json"
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        loaded = Serializer.load(path)
+        logs = loaded.features[0].scenarios[0].steps[0].logs
+        assert logs[0] == "42"
+        assert logs[1] == "hello"
+        assert isinstance(logs[2], dict)
+
+    def test_save_sanitizes_nan_duration(self, tmp_path: Path) -> None:
+        """Regression: NaN float values in trace data are sanitized to 0.0
+        instead of producing invalid JSON (NaN token) or crashing."""
+        trace = make_trace()
+        trace.features[0].scenarios[0].duration = float("nan")
+        path = tmp_path / "trace.json"
+        Serializer.save(trace, path)
+        data = json.loads(path.read_text())
+        assert data["features"][0]["scenarios"][0]["duration"] == 0.0
+
+    def test_save_sanitizes_infinity_duration(self, tmp_path: Path) -> None:
+        """Regression: Infinity in trace data is sanitized to 0.0."""
+        trace = make_trace()
+        trace.features[0].scenarios[0].duration = float("inf")
+        path = tmp_path / "trace.json"
+        Serializer.save(trace, path)
+        data = json.loads(path.read_text())
+        assert data["features"][0]["scenarios"][0]["duration"] == 0.0

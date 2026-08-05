@@ -380,3 +380,51 @@ class TestRunExceptionSafety:
 
         err = capsys.readouterr().err
         assert "failed to run behave" in err.lower()
+
+    def test_watch_loop_skips_rerun_when_already_running(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Regression: watch loop on_change must skip re-run when a run is
+        already in progress, preventing concurrent subprocesses.
+        """
+        from unittest.mock import MagicMock, patch
+
+        features_dir = tmp_path / "features"
+        features_dir.mkdir()
+        (features_dir / "test.feature").write_text("Feature: x\n")
+
+        from behave_trace.cli.app import _watch_loop
+
+        mock_runner = MagicMock()
+        mock_server = MagicMock()
+        mock_server.get_auto_run.return_value = True
+        mock_server.try_set_running.return_value = False
+
+        import argparse
+
+        args = argparse.Namespace(tags=None)
+
+        with (
+            patch("behave_trace.watcher.FileWatcher") as mock_watcher_cls,
+            patch("threading.Event.wait", return_value=True),
+        ):
+            mock_watcher = MagicMock()
+            mock_watcher_cls.return_value = mock_watcher
+
+            _watch_loop(args, features_dir, tmp_path / "trace.json", mock_runner, mock_server)
+
+            # The watcher should have been started and stopped
+            mock_watcher.start.assert_called_once()
+            mock_watcher.stop.assert_called_once()
+
+            # Capture the on_change callback from the constructor call
+            call_args = mock_watcher_cls.call_args
+            assert call_args is not None
+            on_change = call_args.args[1]  # second positional arg is callback
+
+        # Simulate a file change while running — the callback should skip
+        on_change(["test.feature"])
+
+        # The runner should NOT have been called since is_running is True
+        mock_runner.run.assert_not_called()
+        mock_server.set_running.assert_not_called()

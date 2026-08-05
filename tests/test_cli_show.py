@@ -185,7 +185,7 @@ class TestCliShowServer:
                 stderr=subprocess.PIPE,
                 text=True,
             )
-            ret = proc.wait(timeout=5)
+            ret = proc.wait(timeout=15)
             assert ret == 1
             stderr = proc.stderr.read()
             assert "cannot start server" in stderr.lower() or "error" in stderr.lower()

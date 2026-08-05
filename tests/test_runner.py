@@ -264,3 +264,30 @@ class TestRunFiltered:
         assert "@smoke" in cmd
         assert "--name" in cmd
         assert "My Scenario" in cmd
+
+
+class TestRunWithServerUrl:
+    """Regression tests for server_url environment injection."""
+
+    def test_server_url_does_not_raise_nameerror(self, tmp_path: Path) -> None:
+        """Regression: ``os`` was only imported inside a conditional block.
+
+        When ``server_url`` is set but the candidate-root check fails (e.g.
+        installed package), ``os.environ.copy()`` raised ``NameError``.
+        """
+        runner = BehaveRunner(behave_executable="behave")
+        output_path = tmp_path / "trace.json"
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = ""
+        mock_result.stderr = ""
+        output_path.write_text("{}", encoding="utf-8")
+
+        with patch("behave_trace.runner.subprocess.run", return_value=mock_result) as mock_run:
+            result = runner.run(".", output_path, server_url="http://localhost:8000")
+
+        assert result.returncode == 0
+        call_kwargs = mock_run.call_args.kwargs
+        assert call_kwargs["env"] is not None
+        assert call_kwargs["env"]["BEHAVE_TRACE_SERVER_URL"] == "http://localhost:8000"

@@ -265,6 +265,42 @@ class TestClose:
 
         assert (tmp_path / "trace.json").exists()
 
+    def test_multi_feature_finalizes_previous_feature(self) -> None:
+        """Regression: feature() must finalize the previous feature when a
+        new feature starts. Without this, multi-feature runs would leave all
+        features except the last with status "untested" and duration 0.0.
+        """
+        f = make_formatter()
+
+        # First feature with a scenario
+        f.feature(StubFeature(name="F1", status="passed", duration=2.0))
+        f.scenario(StubScenario(name="S1", status="passed", duration=1.0))
+        f.result(StubStep(keyword="Given", name="step1", status="passed", duration=0.1))
+
+        # Second feature — should finalize F1 and S1
+        f.feature(StubFeature(name="F2", status="failed", duration=3.0))
+        f.scenario(StubScenario(name="S2", status="failed", duration=1.5))
+        f.result(StubStep(keyword="When", name="step2", status="failed", duration=0.2))
+        f.eof()
+
+        trace = f._collector.trace
+        assert len(trace.features) == 2
+
+        # First feature must have been finalized
+        f1 = trace.features[0]
+        assert f1.name == "F1"
+        assert f1.status == "passed"
+        assert f1.duration == 2.0
+        assert len(f1.scenarios) == 1
+        assert f1.scenarios[0].status == "passed"
+        assert f1.scenarios[0].duration == 1.0
+
+        # Second feature must also be finalized
+        f2 = trace.features[1]
+        assert f2.name == "F2"
+        assert f2.status == "failed"
+        assert f2.duration == 3.0
+
 
 class TestBackgroundAndStep:
     def test_background_is_noop(self) -> None:
@@ -297,6 +333,54 @@ class TestCloseSaveError:
         with patch(
             "behave_trace.serializer.Serializer.save",
             side_effect=OSError("disk full"),
+        ):
+            f.close()  # Should not raise
+
+        err = capsys.readouterr().err
+        assert "cannot write trace file" in err.lower()
+
+    def test_close_handles_type_error_from_serialization(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Regression: TypeError from json.dumps must not crash close().
+
+        If a trace contains a non-serializable object, ``Serializer.save``
+        raises ``TypeError``. Previously only ``OSError`` was caught, so
+        this would propagate and crash behave with a traceback.
+        """
+        f = make_formatter(str(tmp_path / "trace.json"))
+        f.feature(StubFeature(name="F", status="passed"))
+        f.scenario(StubScenario(name="S", status="passed"))
+        f.result(StubStep(keyword="Given", name="step", status="passed", duration=0.1))
+        f.eof()
+
+        with patch(
+            "behave_trace.serializer.Serializer.save",
+            side_effect=TypeError("Object of type set is not JSON serializable"),
+        ):
+            f.close()  # Should not raise
+
+        err = capsys.readouterr().err
+        assert "cannot write trace file" in err.lower()
+
+    def test_close_handles_value_error_from_nan(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Regression: ValueError from allow_nan=False must not crash close().
+
+        Serializer.save now uses allow_nan=False, which raises ValueError
+        when NaN/Infinity floats are in the trace data. The close() method
+        must catch this and print an error instead of crashing.
+        """
+        f = make_formatter(str(tmp_path / "trace.json"))
+        f.feature(StubFeature(name="F", status="passed"))
+        f.scenario(StubScenario(name="S", status="passed"))
+        f.result(StubStep(keyword="Given", name="step", status="passed", duration=0.1))
+        f.eof()
+
+        with patch(
+            "behave_trace.serializer.Serializer.save",
+            side_effect=ValueError("Out of range float values are not JSON compliant"),
         ):
             f.close()  # Should not raise
 

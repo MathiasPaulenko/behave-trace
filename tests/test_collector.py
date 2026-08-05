@@ -535,6 +535,22 @@ class TestNonStringAttributes:
         assert "42" in c.trace.features[0].description
         assert "text" in c.trace.features[0].description
 
+    def test_string_description_not_iterated_as_characters(self) -> None:
+        """Regression: when ``description`` is a plain string instead of a
+        list, ``"\\n".join(d for d in description)`` iterated characters
+        one-by-one, producing garbage like ``"S\\no\\nm\\ne"``.
+        """
+        c = Collector()
+        c.on_feature(StubFeature(name="F", description="Some description"))  # type: ignore[arg-type]
+        assert c.trace.features[0].description == "Some description"
+
+    def test_string_description_scenario_not_iterated_as_characters(self) -> None:
+        """Regression: same character-iteration bug for scenario descriptions."""
+        c = Collector()
+        c.on_feature(StubFeature(name="F"))
+        c.on_scenario(StubScenario(name="S", description="A scenario description"))  # type: ignore[arg-type]
+        assert c.trace.features[0].scenarios[0].description == "A scenario description"
+
     def test_non_numeric_duration_does_not_crash(self) -> None:
         """Regression: non-numeric duration string should not crash float()."""
         c = Collector()
@@ -550,3 +566,23 @@ class TestNonStringAttributes:
         c.on_step(StubStep(duration="fast"))  # type: ignore[arg-type]
         step = c.trace.features[0].scenarios[0].steps[0]
         assert step.duration == 0.0
+
+    def test_non_string_step_text_is_converted(self) -> None:
+        """Regression: non-string step text should be safely converted to
+        string, not stored as-is which could break JSON serialization."""
+        c = Collector()
+        c.on_feature(StubFeature(name="F"))
+        c.on_scenario(StubScenario(name="S"))
+        c.on_step(StubStep(text=42))  # type: ignore[arg-type]
+        step = c.trace.features[0].scenarios[0].steps[0]
+        assert step.text == "42"
+        assert isinstance(step.text, str)
+
+    def test_none_step_text_stays_none(self) -> None:
+        """Ensure that None text stays None, not converted to 'None' string."""
+        c = Collector()
+        c.on_feature(StubFeature(name="F"))
+        c.on_scenario(StubScenario(name="S"))
+        c.on_step(StubStep(text=None))
+        step = c.trace.features[0].scenarios[0].steps[0]
+        assert step.text is None

@@ -493,3 +493,76 @@ class TestAttachNetwork:
         ctx = make_context(fmt)
         attach_network(ctx, 42)
         assert len(fmt.attached) == 0
+
+
+class TestAttachDomBaseUrlEscaping:
+    """Regression tests for HTML injection via ``base_url``.
+
+    ``base_url`` is extracted from the source object's ``current_url`` or
+    ``url`` attribute.  If it contains special characters, it was injected
+    raw into ``<base href="...">``, allowing HTML injection.
+
+    Additionally, the local variable ``html`` (the DOM string) shadowed
+    the imported ``html`` module, so ``html.escape()`` raised
+    ``AttributeError`` instead of escaping.
+    """
+
+    def test_base_url_with_quote_is_escaped(self) -> None:
+        """Regression: ``base_url`` containing ``"`` was injected raw into
+        ``<base href="...">``, allowing attribute breakout.
+        """
+
+        class MaliciousDriver:
+            current_url = 'http://evil.com" onload="alert(1)'
+
+            @property
+            def page_source(self) -> str:
+                return "<html><head></head><body>test</body></html>"
+
+        fmt = FakeFormatter()
+        ctx = make_context(fmt)
+        attach_dom(ctx, MaliciousDriver(), name="dom.html")
+        assert len(fmt.attached) == 1
+        text = fmt.attached[0].text
+        # The quote must be escaped, not raw
+        assert 'onload="alert(1)' not in text
+        assert "&quot;" in text
+
+    def test_base_url_with_angle_brackets_is_escaped(self) -> None:
+        """Regression: ``base_url`` containing ``<`` or ``>`` could inject
+        arbitrary HTML tags into the ``<base>`` tag.
+        """
+
+        class MaliciousDriver:
+            current_url = 'http://evil.com"><script>alert(1)</script><x href="'
+
+            @property
+            def page_source(self) -> str:
+                return "<html><head></head><body>test</body></html>"
+
+        fmt = FakeFormatter()
+        ctx = make_context(fmt)
+        attach_dom(ctx, MaliciousDriver(), name="dom.html")
+        assert len(fmt.attached) == 1
+        text = fmt.attached[0].text
+        assert "<script>alert(1)</script>" not in text
+
+    def test_html_module_shadowing_does_not_crash(self) -> None:
+        """Regression: the local variable ``html`` (DOM string) shadowed
+        the imported ``html`` module, so ``html.escape()`` raised
+        ``AttributeError: 'str' object has no attribute 'escape'``.
+        """
+
+        class DriverWithUrl:
+            current_url = "http://example.com/page"
+
+            @property
+            def page_source(self) -> str:
+                return "<html><head></head><body>test</body></html>"
+
+        fmt = FakeFormatter()
+        ctx = make_context(fmt)
+        # This should not raise AttributeError
+        attach_dom(ctx, DriverWithUrl(), name="dom.html")
+        assert len(fmt.attached) == 1
+        assert "<base " in fmt.attached[0].text

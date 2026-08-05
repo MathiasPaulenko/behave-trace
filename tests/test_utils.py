@@ -178,3 +178,10 @@ class TestSafeFloat:
 
     def test_bool_false(self) -> None:
         assert safe_float(False) == 0.0
+
+    def test_huge_int_overflow(self) -> None:
+        """Regression: very large int raises OverflowError in float().
+
+        safe_float must catch OverflowError, not just TypeError/ValueError.
+        """
+        assert safe_float(10**400) == 0.0
