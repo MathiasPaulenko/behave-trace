@@ -167,8 +167,6 @@ def _cmd_run(args: argparse.Namespace) -> int:
         if server is None:
             return
 
-        server.set_running(True)
-
         run_cwd, run_features = _resolve_features(features_dir)
 
         try:
@@ -303,9 +301,11 @@ def _watch_loop(
             print("Auto-run is disabled; ignoring file changes.")
             return
 
-        print("Re-running behave...")
+        if not server.try_set_running(True):
+            print("Already running; skipping re-run.")
+            return
 
-        server.set_running(True)
+        print("Re-running behave...")
 
         try:
             # Re-run behave

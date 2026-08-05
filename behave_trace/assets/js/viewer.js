@@ -312,7 +312,7 @@ function traceViewer() {
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                 e.preventDefault();
                 if (!this.currentScenario) return;
-                const steps = this.currentScenario.steps;
+                const steps = this.currentScenario.steps || [];
                 if (steps.length === 0) return;
                 let idx = this.selectedStepIdx ?? -1;
                 if (e.key === 'ArrowDown') {
@@ -615,11 +615,12 @@ function traceViewer() {
             this.selectedStepIdx = null;
             this.activeTab = 'screenshot';
             this.cursorPos = 0;
+            const steps = scenario?.steps || [];
             // Auto-select first failed step, or first step (Playwright behavior)
-            const firstFailed = scenario.steps.findIndex(s => s.status === 'failed');
+            const firstFailed = steps.findIndex(s => s.status === 'failed');
             if (firstFailed >= 0) {
                 this.selectStep(firstFailed);
-            } else if (scenario.steps.length > 0) {
+            } else if (steps.length > 0) {
                 // Fallback: select first step if no failures
                 this.selectStep(0);
             }
@@ -651,7 +652,7 @@ function traceViewer() {
 
         get selectedStep() {
             if (this.selectedStepIdx === null || !this.currentScenario) return null;
-            return this.currentScenario.steps[this.selectedStepIdx];
+            return (this.currentScenario.steps || [])[this.selectedStepIdx];
         },
 
         // ─── Timeline (Playwright-style scrubbing) ───
@@ -678,13 +679,14 @@ function traceViewer() {
                 this.cursorPos = 0;
                 return;
             }
+            const steps = this.currentScenario.steps || [];
             const total = this.currentScenario.duration || 1;
             let elapsed = 0;
             for (let i = 0; i < this.selectedStepIdx; i++) {
-                elapsed += this.currentScenario.steps[i].duration || 0;
+                elapsed += (steps[i]?.duration || 0);
             }
             // Center cursor on the selected step
-            const stepDuration = this.currentScenario.steps[this.selectedStepIdx].duration || 0;
+            const stepDuration = steps[this.selectedStepIdx]?.duration || 0;
             this.cursorPos = ((elapsed + stepDuration / 2) / total) * 100;
         },
 
@@ -695,9 +697,10 @@ function traceViewer() {
             const ratio = (event.clientX - rect.left) / rect.width;
             const target = ratio * (this.currentScenario.duration || 0);
             // Find step at this time position
+            const steps = this.currentScenario.steps || [];
             let elapsed = 0;
-            for (let i = 0; i < this.currentScenario.steps.length; i++) {
-                elapsed += this.currentScenario.steps[i].duration || 0;
+            for (let i = 0; i < steps.length; i++) {
+                elapsed += steps[i].duration || 0;
                 if (elapsed >= target) {
                     this.selectStep(i);
                     return;
@@ -709,7 +712,7 @@ function traceViewer() {
         hasBeforeSnapshot() {
             if (this.selectedStepIdx === null || !this.currentScenario) return false;
             if (this.selectedStepIdx === 0) return false;
-            const prevStep = this.currentScenario.steps[this.selectedStepIdx - 1];
+            const prevStep = (this.currentScenario.steps || [])[this.selectedStepIdx - 1];
             return prevStep?.has_dom || false;
         },
 
@@ -724,7 +727,7 @@ function traceViewer() {
             if (this.selectedStepIdx === null || !this.currentScenario || this.selectedStepIdx === 0) {
                 return '<p>No before snapshot</p>';
             }
-            const prevStep = this.currentScenario.steps[this.selectedStepIdx - 1];
+            const prevStep = (this.currentScenario.steps || [])[this.selectedStepIdx - 1];
             const dom = prevStep?.artifacts?.find(a => a.type === 'dom');
             return this._stripScripts(dom?.text || '<p>No before snapshot</p>');
         },
@@ -846,7 +849,7 @@ function traceViewer() {
         // ─── Computed: has screenshots (for filmstrip visibility) ───
         get hasScreenshots() {
             if (!this.currentScenario) return false;
-            return this.currentScenario.steps.some(s => s.has_screenshot);
+            return (this.currentScenario.steps || []).some(s => s.has_screenshot);
         },
 
         // ─── Artifact helpers ───
