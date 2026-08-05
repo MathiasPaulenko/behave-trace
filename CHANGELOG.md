@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 1.3.0 — 2026-08-05
+
+### Added
+
+- **Port conflict detection**: pre-check port availability before binding the server, raising a clear error instead of hanging on Windows.
+- Improved serializer with better error handling and edge-case coverage.
+- Enhanced collector with more robust attachment and log flushing.
+- Additional test coverage for server API, CLI integration, attachments, and edge cases.
+
+### Fixed
+
+- **Windows port hang**: `ThreadingHTTPServer` could block indefinitely when the port was already in use. Now detected upfront with a `connect_ex` probe.
+- Minor fixes in formatter, runner, and watcher for robustness.
+
+### Changed
+
+- Viewer JS improvements for smoother UI interactions.
+- CLI app refinements for better error reporting.
+
 ## 1.2.1 — 2026-08-04
 
 ### Fixed
