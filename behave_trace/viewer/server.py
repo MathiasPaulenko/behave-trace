@@ -595,9 +595,7 @@ class ViewerServer:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
                 probe.settimeout(0.5)
                 if probe.connect_ex(("127.0.0.1", self.port)) == 0:
-                    raise OSError(
-                        f"Port {self.port} is already in use"
-                    )
+                    raise OSError(f"Port {self.port} is already in use")
 
         self._httpd = _QuietHTTPServer(("127.0.0.1", self.port), Handler)
         actual_port = self._httpd.server_address[1]
