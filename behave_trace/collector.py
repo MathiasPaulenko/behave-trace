@@ -7,6 +7,7 @@ unit-test with simple stubs.
 
 from __future__ import annotations
 
+import copy
 import getpass
 import json
 import os
@@ -97,6 +98,7 @@ class Collector:
         self._current_scenario: Scenario | None = None
         self._pending_artifacts: list[Artifact] = []
         self._pending_logs: list[dict[str, Any]] = []
+        self._bg_step_index = 0
         self._started_scenarios = 0
         self._completed_scenarios = 0
         self._progress_url = os.environ.get("BEHAVE_TRACE_SERVER_URL")
@@ -197,6 +199,8 @@ class Collector:
         self._current_feature.duration = safe_float(getattr(behave_feature, "duration", 0.0) or 0.0)
         self._current_feature = None
         self._current_rule_name = ""
+        self._pending_artifacts.clear()
+        self._pending_logs.clear()
 
     # ------------------------------------------------------------------
     # Rule (Gherkin v6 / Behave 1.3.x)
@@ -212,7 +216,9 @@ class Collector:
     def on_scenario(self, behave_scenario: Any) -> Scenario:
         """Start a new scenario."""
         scenario_type = safe_str(getattr(behave_scenario, "type", ""))
-        is_outline = scenario_type in ("scenario_outline", "outline")
+        parent = getattr(behave_scenario, "parent", None)
+        parent_is_outline = getattr(parent, "type", "") == "scenario_outline"
+        is_outline = scenario_type in ("scenario_outline", "outline") or parent_is_outline
 
         scenario = Scenario(
             name=_safe_attr_str(getattr(behave_scenario, "name", None)),
@@ -222,11 +228,14 @@ class Collector:
             feature_name=self._current_feature.name if self._current_feature else "",
             rule_name=self._current_rule_name,
             is_outline=is_outline,
-            outline_name="",
-            examples=None,
+            outline_name=_safe_attr_str(getattr(parent, "name", None)) if parent_is_outline else "",
+            examples=self._make_examples(parent) if parent_is_outline else None,
         )
         if self._current_feature and self._current_feature.background:
-            scenario.background = self._current_feature.background
+            # Each scenario gets its own copy: background steps are re-executed
+            # per scenario, so their statuses must not leak between scenarios.
+            scenario.background = copy.deepcopy(self._current_feature.background)
+        self._bg_step_index = 0
         self._current_scenario = scenario
         if self._current_feature is not None:
             self._current_feature.scenarios.append(scenario)
@@ -245,6 +254,10 @@ class Collector:
         self._completed_scenarios += 1
         self._post_progress("scenario_completed", self._current_scenario.name)
         self._current_scenario = None
+        # Attachments/log lines queued outside a step (e.g. in after_scenario)
+        # must not bleed into the next scenario's first step.
+        self._pending_artifacts.clear()
+        self._pending_logs.clear()
 
     def _post_progress(self, event: str, scenario_name: str) -> None:
         """Notify the viewer server of scenario progress via HTTP POST."""
@@ -276,12 +289,19 @@ class Collector:
     # Step
     # ------------------------------------------------------------------
 
-    def on_step(self, behave_step: Any) -> Step | None:
+    def on_step(self, behave_step: Any, in_background: bool | None = None) -> Step | None:
         """Add a step result to the current scenario.
 
         Flushes any pending artifacts and logs that were captured during
         step execution (via attach_screenshot, attach_dom, log, etc.)
         onto this step.
+
+        Args:
+            behave_step: The Behave step object after execution.
+            in_background: Whether the step belongs to a background. When
+                ``None``, it is detected via ``step.parent.type``; the
+                formatter passes it via an identity check against
+                ``scenario.background_steps``.
         """
         if self._current_scenario is None:
             self._pending_artifacts.clear()
@@ -293,6 +313,17 @@ class Collector:
         self._pending_artifacts.clear()
         self._pending_logs.clear()
         self._current_scenario.steps.append(step)
+        if in_background is None:
+            in_background = (
+                getattr(getattr(behave_step, "parent", None), "type", "") == "background"
+            )
+        # Behave re-executes background steps inside each scenario. Sync the
+        # per-scenario background copy with the real execution result.
+        if in_background:
+            background = self._current_scenario.background
+            if background is not None and self._bg_step_index < len(background.steps):
+                background.steps[self._bg_step_index] = step
+            self._bg_step_index += 1
         return step
 
     def _make_step(self, behave_step: Any) -> Step:
@@ -363,6 +394,22 @@ class Collector:
             mime_type=mime_type or "application/octet-stream",
             data_base64=data_base64,
         )
+
+    @staticmethod
+    def _make_examples(behave_outline: Any) -> DataTable | None:
+        """Extract the first Examples table of a scenario outline, if any."""
+        for example in _safe_iterable(getattr(behave_outline, "examples", [])):
+            table = getattr(example, "table", None)
+            if table is None:
+                continue
+            try:
+                return DataTable(
+                    headings=[safe_str(h) for h in getattr(table, "headings", []) or []],
+                    rows=[[safe_str(c) for c in row.cells] for row in table.rows],
+                )
+            except Exception:
+                continue
+        return None
 
     def _make_background(self, behave_background: Any) -> Background:
         """Convert a Behave background object into a Background model."""

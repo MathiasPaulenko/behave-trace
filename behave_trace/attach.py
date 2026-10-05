@@ -39,6 +39,17 @@ def _find_formatter(context: Any) -> Any:
     return None
 
 
+def _sniff_image_mime(data: bytes) -> str:
+    """Detect the image MIME type from magic bytes (defaults to PNG)."""
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"GIF8"):
+        return "image/gif"
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/png"
+
+
 def attach_screenshot(context: Any, source: Any, name: str = "screenshot.png") -> None:
     """Attach a screenshot to the current step.
 
@@ -76,7 +87,7 @@ def attach_screenshot(context: Any, source: Any, name: str = "screenshot.png") -
         Artifact(
             type=ARTIFACT_SCREENSHOT,
             name=name,
-            mime_type="image/png",
+            mime_type=_sniff_image_mime(data),
             data_base64=base64.b64encode(data).decode("ascii"),
         )
     )
@@ -126,18 +137,38 @@ def attach_dom(context: Any, source: Any, name: str = "dom.html") -> None:
         return
 
     # Inject <base> tag so relative URLs resolve in the viewer's iframe
-    if base_url and "<base" not in html:
+    if base_url and "<base" not in html.lower():
         escaped_url = html_module.escape(base_url, quote=True)
         base_tag = f'<base href="{escaped_url}">'
-        if "<head>" in html:
-            html = html.replace("<head>", f"<head>{base_tag}", 1)
-        elif "<head " in html:
-            # Insert after the opening <head ...> tag to preserve attributes
-            close_idx = html.find(">", html.find("<head "))
+        lower = html.lower()
+        head_idx = lower.find("<head")
+        if head_idx != -1:
+            # Insert right after the opening <head ...> tag, preserving attributes
+            close_idx = html.find(">", head_idx)
             if close_idx != -1:
                 html = html[: close_idx + 1] + base_tag + html[close_idx + 1 :]
+            else:
+                html = base_tag + html
         else:
-            html = base_tag + html
+            doctype_idx = lower.find("<!doctype")
+            html_idx = lower.find("<html")
+            if html_idx != -1:
+                # No <head>: insert after <html ...> so the tag lands inside the
+                # document (browsers hoist <base> into <head>).
+                close_idx = html.find(">", html_idx)
+                if close_idx != -1:
+                    html = html[: close_idx + 1] + base_tag + html[close_idx + 1 :]
+                else:
+                    html = base_tag + html
+            elif doctype_idx != -1:
+                # Keep the DOCTYPE first: insert the base tag after it.
+                close_idx = html.find(">", doctype_idx)
+                if close_idx != -1:
+                    html = html[: close_idx + 1] + base_tag + html[close_idx + 1 :]
+                else:
+                    html = base_tag + html
+            else:
+                html = base_tag + html
 
     formatter.attach(
         Artifact(

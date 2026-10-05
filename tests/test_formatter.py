@@ -103,17 +103,18 @@ class TestResolveOutputPath:
         path = TraceFormatter._resolve_output_path(opener, StubConfig())
         assert path == Path("alt.json")
 
-    def test_from_config_outputs(self) -> None:
+    def test_stdout_opener_ignores_other_formatters_outfiles(self) -> None:
+        """config.outputs may belong to other formatters; never write there."""
         opener = StubStreamOpener()
         config = StubConfig(outputs=[StubOutput(name="from_config.json")])
         path = TraceFormatter._resolve_output_path(opener, config)
-        assert path == Path("from_config.json")
+        assert path == Path("trace.json")
 
-    def test_skips_stdout(self) -> None:
+    def test_stdout_opener_skips_stdout_names(self) -> None:
         opener = StubStreamOpener()
         config = StubConfig(outputs=[StubOutput(name="<stdout>"), StubOutput(name="real.json")])
         path = TraceFormatter._resolve_output_path(opener, config)
-        assert path == Path("real.json")
+        assert path == Path("trace.json")
 
     def test_fallback_to_trace_json(self) -> None:
         opener = StubStreamOpener()

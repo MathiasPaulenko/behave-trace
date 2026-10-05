@@ -19,13 +19,13 @@ like `feature(feature)`, `scenario(scenario)`, `step(step)`, and
 
 ### Collector (`collector.py`)
 
-The `TraceCollector` maps Behave's runtime objects (features, scenarios,
+The `Collector` maps Behave's runtime objects (features, scenarios,
 steps) into behave-trace's own data model (`Trace`, `Feature`, `Scenario`,
 `Step`). It also collects attachments from the formatter's attachment queue.
 
 ### Models (`models.py`)
 
-Frozen dataclasses representing the trace structure:
+Dataclasses representing the trace structure:
 
 ```text
 Trace
@@ -40,8 +40,8 @@ properties (e.g. `has_screenshot`, `passed_steps`, `overall_status`).
 
 ### Serializer (`serializer.py`)
 
-`save_trace(trace, path)` writes the trace to a JSON file.
-`load_trace(path)` reads it back.
+`Serializer.save(trace, path)` writes the trace to a JSON file.
+`Serializer.load(path)` reads it back.
 
 ### Attach (`attach.py`)
 
@@ -65,13 +65,13 @@ to polling. Powers the `--watch` mode.
 
 - `server.py` — `ThreadingHTTPServer` serving the SPA, a `/api/trace`
   endpoint, `/api/run` and `/api/rerun` for triggering executions, and
-  `/api/events` for Server-Sent Events (live progress). Pre-checks port
+  `/api/stream` for Server-Sent Events (live progress). Pre-checks port
   availability before binding to avoid hangs on Windows.
 - `browser.py` — Opens the browser in Chrome app mode (borderless window).
 
 ### Assets (`assets/`)
 
-- `index.html` — SPA shell loading Alpine.js from CDN.
+- `index.html` — SPA shell loading a vendored Alpine.js bundle (no CDN).
 - `css/viewer.css` — Dark theme styles.
 - `js/viewer.js` — Alpine.js component with trace rendering logic.
 
@@ -94,13 +94,13 @@ Behave runner
 TraceFormatter (formatter.py)
      │
      ▼
-TraceCollector (collector.py)
+Collector (collector.py)
      │
      ▼
 Trace model (models.py)
      │
      ▼
-save_trace() (serializer.py)
+Serializer.save() (serializer.py)
      │
      ▼
 trace.json
@@ -124,7 +124,14 @@ trace.json
 
 ## Formatter registration
 
-The formatter is registered via the `behave.formatters` entry point in
-`pyproject.toml`. Additionally, `behave_trace/__init__.py` attempts manual
-registration with Behave's internal formatter registry for compatibility
-with Behave 1.3.x, which does not auto-discover entry points.
+Behave does not auto-discover formatters via entry points. The formatter is
+resolved in one of two ways:
+
+- A `[behave.formatters]` section in the project's `behave.ini` (or
+  `behave.cfg`, `setup.cfg`) mapping `behave-trace` to the scoped class name.
+- The scoped class name directly: `--format behave_trace.formatter:TraceFormatter`
+  (this is what `behave-trace run` uses, so it works without registration).
+
+Additionally, `behave_trace/__init__.py` attempts manual registration with
+Behave's internal formatter registry (`behave.formatter._registry.register_as`)
+whenever the package is imported.

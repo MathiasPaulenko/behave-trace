@@ -32,7 +32,9 @@ behave-trace show trace.json --port 8080 --no-browser
 
 ## `behave-trace run`
 
-Run Behave with the trace formatter, then open the viewer.
+Run Behave with the trace formatter, then open the viewer. This command uses
+the formatter's scoped class name, so it works without a `[behave.formatters]`
+registration in your `behave.ini`.
 
 ```bash
 behave-trace run [features_dir] [options]
@@ -74,7 +76,7 @@ behave-trace --version
 ```
 
 ```text
-1.3.0
+1.3.1
 ```
 
 ## `python -m behave_trace`
@@ -102,8 +104,9 @@ Then use it with Behave's `--format` flag:
 # Write trace to a file
 behave --format behave-trace -o trace.json
 
-# Also keep the default pretty output
-behave --format pretty --format behave-trace -o trace.json
+# Also keep the default pretty output (note: -o pairs positionally with -f,
+# so the outfile must come right after the trace formatter)
+behave --format behave-trace -o trace.json --format pretty
 ```
 
 Alternatively, you can use the scoped class name directly without registration:

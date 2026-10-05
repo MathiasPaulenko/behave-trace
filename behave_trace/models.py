@@ -112,7 +112,7 @@ class Artifact:
         }
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize including computed properties for the viewer frontend."""
+        """Serialize to a plain dict (no computed properties)."""
         return {
             "type": self.type,
             "name": self.name,

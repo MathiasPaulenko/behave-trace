@@ -593,6 +593,7 @@ mark {
 .status-dot--skipped  { background: var(--skipped); }
 .status-dot--undefined { background: var(--undefined); }
 .status-dot--untested { background: var(--text-dim); }
+.status-dot--running  { background: var(--running); }
 
 .tree__label {
     flex: 1;
@@ -652,6 +653,7 @@ mark {
     overflow: hidden;
     display: -webkit-box;
     -webkit-line-clamp: 3;
+    line-clamp: 3;
     -webkit-box-orient: vertical;
 }
 
@@ -733,6 +735,7 @@ mark {
 .timeline__segment--skipped  { background: var(--skipped); }
 .timeline__segment--undefined { background: var(--undefined); }
 .timeline__segment--untested { background: var(--text-dim); }
+.timeline__segment--running  { background: var(--running); }
 
 .timeline__cursor {
     position: absolute;
@@ -875,6 +878,8 @@ mark {
 .status-icon--failed   { color: var(--failed); }
 .status-icon--skipped  { color: var(--skipped); }
 .status-icon--undefined { color: var(--undefined); }
+.status-icon--untested  { color: var(--text-dim); }
+.status-icon--running   { color: var(--running); }
 
 .step-item__keyword {
     color: var(--accent);
@@ -1136,6 +1141,7 @@ mark {
     border-bottom: 1px solid var(--border);
 }
 
+.console-line--info { color: var(--text-secondary); }
 .console-line--error { color: var(--failed); }
 .console-line--warning { color: var(--skipped); }
 
@@ -1267,6 +1273,11 @@ mark {
 .filmstrip__item:hover { border-color: var(--border-light); }
 .filmstrip__item--active { border-color: var(--accent); }
 .filmstrip__item--failed { border-color: var(--failed); }
+.filmstrip__item--passed { border-color: var(--passed); }
+.filmstrip__item--skipped { border-color: var(--skipped); }
+.filmstrip__item--undefined { border-color: var(--undefined); }
+.filmstrip__item--untested { border-color: var(--text-dim); }
+.filmstrip__item--running { border-color: var(--running); }
 
 .filmstrip__thumb {
     width: 100%;

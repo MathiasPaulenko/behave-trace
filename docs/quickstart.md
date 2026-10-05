@@ -10,12 +10,20 @@ From the root of your Behave project (the directory containing `features/`):
 behave --format behave-trace -o trace.json
 ```
 
+This requires the formatter to be registered first — add a
+`[behave.formatters]` section to your `behave.ini` (see
+[CLI → Behave formatter usage](cli.md#behave-formatter-usage)) or use the
+scoped class name:
+
+```bash
+behave --format behave_trace.formatter:TraceFormatter -o trace.json
+```
+
 behave-trace will:
 
-1. Register the `TraceFormatter` as a Behave formatter (via entry point).
-2. Collect execution events: features, scenarios, steps, statuses, durations.
-3. Capture attachments (screenshots, DOM, logs) from your `environment.py`.
-4. Serialize the trace to `trace.json` when the test run completes.
+1. Collect execution events: features, scenarios, steps, statuses, durations.
+2. Capture attachments (screenshots, DOM, logs) from your `environment.py`.
+3. Serialize the trace to `trace.json` when the test run completes.
 
 ### What you'll see
 
@@ -41,7 +49,8 @@ The viewer opens in your browser at `http://127.0.0.1:<port>` with:
 
 - **Timeline** — colored segments per step (green = passed, red = failed).
 - **Filmstrip** — screenshots captured during execution.
-- **Detail tabs** — Steps, Screenshots, Snapshot (DOM), Console (logs), Error.
+- **Detail tabs** — Screenshot, Snapshot (DOM), Source, Console (logs),
+  Network, Error, Artifacts.
 - **DOM snapshot diff** — switch between before/after, split, and diff views with
   added/removed elements highlighted.
 - **Feature tree** — collapse/expand all or sort scenarios by name, duration, or status.
@@ -87,8 +96,9 @@ behave --format behave-trace -o trace.json
 behave-trace show trace.json
 ```
 
-The example demonstrates screenshots, DOM snapshots, logs, and a failing
-scenario (division by zero).
+The example demonstrates screenshots, DOM snapshots, logs, and an
+error-handling scenario (division by zero). To see a failed step, change an
+expectation in `calculator.feature` and re-run.
 
 ## Next steps
 

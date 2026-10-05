@@ -8,7 +8,7 @@ Demonstrates **behave-trace** with:
 - Real screenshots from a headless browser
 - DOM snapshots of actual web pages
 - Log lines for every step
-- Passing and failing scenarios with visual evidence
+- Failure capture: if a step fails, a screenshot and DOM snapshot are attached
 
 ## Requirements
 

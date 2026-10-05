@@ -1,13 +1,11 @@
 """Behave formatter entry point for behave-trace.
 
-Register via entry point (pyproject.toml)::
-
-    [project.entry-points."behave.formatters"]
-    behave-trace = "behave_trace.formatter:TraceFormatter"
-
-Then run::
+Behave does not auto-discover entry points, so the formatter is either
+registered in ``behave.ini`` (``[behave.formatters]`` section) or referenced
+by its scoped class name::
 
     behave --format behave-trace -o trace.json
+    behave --format behave_trace.formatter:TraceFormatter -o trace.json
 """
 
 from __future__ import annotations
@@ -73,7 +71,12 @@ class TraceFormatter(Formatter):  # type: ignore[misc]
         pass
 
     def result(self, step: Any) -> None:
-        self._collector.on_step(step)
+        # Behave gives each scenario copies of its background steps
+        # (scenario.background_steps); identity check marks background steps.
+        in_background = any(
+            step is bg_step for bg_step in getattr(self._behave_scenario, "background_steps", [])
+        )
+        self._collector.on_step(step, in_background=in_background)
 
     def eof(self) -> None:
         if self._behave_scenario is not None:
@@ -117,9 +120,7 @@ class TraceFormatter(Formatter):  # type: ignore[misc]
         candidate = getattr(stream_opener, "name", None) or getattr(stream_opener, "filename", None)
         if candidate:
             return Path(candidate)
-        outputs = getattr(config, "outputs", None) or []
-        for output in outputs:
-            name = getattr(output, "name", None)
-            if name and name not in ("<stdout>", "<stderr>"):
-                return Path(name)
+        # Behave pairs -o outfiles positionally to --format entries. When this
+        # formatter gets stdout (no -o), config.outputs belongs to *other*
+        # formatters — writing there would clobber their output files.
         return Path("trace.json")

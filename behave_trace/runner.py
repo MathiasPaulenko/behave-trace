@@ -7,6 +7,7 @@ enabling the ``behave-trace run`` command (equivalent to ``playwright test --ui`
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -27,6 +28,14 @@ class RunResult:
     stdout: str
     stderr: str
     trace_path: Path | None = None
+
+
+_REGEX_META = re.compile(r"([\\^$.|?*+()\[\]{}])")
+
+
+def _escape_regex(text: str) -> str:
+    """Escape regex metacharacters (unlike ``re.escape``, leaves spaces alone)."""
+    return _REGEX_META.sub(r"\\\1", text)
 
 
 class BehaveRunner:
@@ -67,7 +76,11 @@ class BehaveRunner:
         """
         cmd = [sys.executable, "-m", "behave"] if self._use_module else [self._behave]
 
-        cmd.extend(["--format", "behave-trace", "-o", str(output_path)])
+        # Use the scoped class name: Behave does not auto-discover entry
+        # points, so the registered name requires a [behave.formatters]
+        # section in the target project's behave.ini. The scoped name always
+        # resolves as long as behave_trace is importable.
+        cmd.extend(["--format", "behave_trace.formatter:TraceFormatter", "-o", str(output_path)])
         if tags:
             cmd.extend(["--tags", tags])
         if extra_args:
@@ -92,6 +105,9 @@ class BehaveRunner:
             tags: Optional tag expression.
             extra_args: Additional arguments for behave.
             cwd: Working directory for the subprocess.
+            server_url: Optional viewer server URL. When set, the subprocess
+                receives ``BEHAVE_TRACE_SERVER_URL`` so it can report live
+                progress to the viewer.
 
         Returns:
             :class:`RunResult` with exit code, output, and trace path.
@@ -188,7 +204,9 @@ class BehaveRunner:
         extra_args: list[str] = []
         if scenario_names:
             for name in scenario_names:
-                extra_args.extend(["--name", name])
+                # --name is a regex: escape metacharacters so names like
+                # "Foo -- @1.2" or "Price [x]" match literally.
+                extra_args.extend(["--name", _escape_regex(name)])
         return self.run(
             features_dir=features_dir,
             output_path=output_path,

@@ -106,7 +106,9 @@ function traceViewer() {
         _handleSSEEvent(event) {
             switch (event.type) {
                 case 'state':
-                    this.isRunning = event.running === true;
+                    if (event.running !== undefined) {
+                        this.isRunning = event.running === true;
+                    }
                     if (event.watching !== undefined) {
                         this.isWatching = event.watching === true;
                     }
@@ -269,7 +271,7 @@ function traceViewer() {
                 await fetch('/api/rerun', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ filter: 'failed', scenarios: this.selectedScenarios }),
+                    body: JSON.stringify({ filter: 'selected', scenarios: this.selectedScenarios }),
                 });
             } catch (err) {
                 console.error('Run selected failed:', err);
@@ -305,9 +307,9 @@ function traceViewer() {
 
         // ─── Keyboard navigation ───
         handleKeydown(e) {
-            // Don't interfere with text inputs
+            // Don't interfere with form controls
             const tag = e.target.tagName;
-            if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                 e.preventDefault();
@@ -791,6 +793,11 @@ function traceViewer() {
             if (!this.hasBeforeSnapshot()) return '<p class="snapshot-diff__empty">No before snapshot available</p>';
             const before = this._tokenizeHtml(this.beforeSnapshotHtml());
             const after = this._tokenizeHtml(this.afterSnapshotHtml());
+            // LCS is O(m*n) in memory — bail out on huge snapshots to avoid
+            // freezing the tab; the user can still use the split view.
+            if (before.length * after.length > 2000000) {
+                return '<p class="snapshot-diff__empty">Snapshots too large for diff. Use the split view instead.</p>';
+            }
             const diff = this._computeDiff(before, after);
             return diff.map(d => {
                 const text = this._escapeHtml(d.text);
@@ -870,11 +877,6 @@ function traceViewer() {
             });
         },
 
-        domArtifacts(step) {
-            if (!step) return [];
-            return step.artifacts?.filter(a => a.type === 'dom') || [];
-        },
-
         thumbnailSrc(step) {
             const ss = step.artifacts?.find(a => a.type === 'screenshot');
             if (!ss) return '';
@@ -905,11 +907,14 @@ function traceViewer() {
 
         formatDuration(seconds) {
             if (!seconds || seconds === 0) return '0ms';
+            if (!Number.isFinite(seconds)) return '0ms';
             if (seconds < 1.0) return Math.round(seconds * 1000) + 'ms';
             if (seconds < 60.0) return seconds.toFixed(2) + 's';
             const m = Math.floor(seconds / 60);
             const s = Math.floor(seconds % 60);
-            return m + 'm ' + s + 's';
+            if (seconds < 3600.0) return m + 'm ' + s + 's';
+            const h = Math.floor(seconds / 3600);
+            return h + 'h ' + (m % 60) + 'm ' + s + 's';
         },
 
         formatElapsed(seconds) {
@@ -922,16 +927,6 @@ function traceViewer() {
         progressPercent() {
             if (!this.progressTotal) return 0;
             return Math.min(100, Math.round((this.progressCompleted / this.progressTotal) * 100));
-        },
-
-        formatTime(timestamp) {
-            if (!timestamp) return '';
-            try {
-                const d = new Date(timestamp);
-                return d.toLocaleTimeString();
-            } catch {
-                return '';
-            }
         },
     };
 }

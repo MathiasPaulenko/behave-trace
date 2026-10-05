@@ -291,7 +291,16 @@ class ViewerServer:
                     return
 
                 sstate.auto_run = enabled
-                sstate.notify({"type": "state", "autoRun": enabled})
+                sstate.notify(
+                    {
+                        "type": "state",
+                        "running": sstate.running,
+                        "watching": sstate.watching,
+                        "canRun": sstate.can_run,
+                        "autoRun": enabled,
+                        "progress": sstate.progress,
+                    }
+                )
                 self._send_json_response({"status": "ok", "autoRun": enabled})
 
             def _handle_run(
@@ -357,15 +366,15 @@ class ViewerServer:
                 filter_type = payload.get("filter", "all")
                 scenarios = payload.get("scenarios")
 
-                if filter_type not in ("failed", "all"):
+                if filter_type not in ("failed", "all", "selected"):
                     self._send_json_response(
-                        {"error": "Invalid filter; must be 'failed' or 'all'"},
+                        {"error": "Invalid filter; must be 'failed', 'all' or 'selected'"},
                         status=400,
                     )
                     return
 
                 scenario_names: list[str] | None = None
-                if filter_type == "failed" and isinstance(scenarios, list):
+                if filter_type in ("failed", "selected") and isinstance(scenarios, list):
                     scenario_names = [str(s) for s in scenarios if s is not None]
 
                 # Atomically check-and-set running to prevent two concurrent runs
@@ -645,7 +654,16 @@ class ViewerServer:
     def set_auto_run(self, auto_run: bool) -> None:
         """Set the auto-run state and notify SSE clients."""
         self._state.auto_run = auto_run
-        self._state.notify({"type": "state", "autoRun": auto_run})
+        self._state.notify(
+            {
+                "type": "state",
+                "running": self._state.running,
+                "watching": self._state.watching,
+                "canRun": self._state.can_run,
+                "autoRun": auto_run,
+                "progress": self._state.progress,
+            }
+        )
 
     def get_auto_run(self) -> bool:
         """Return the current auto-run state."""

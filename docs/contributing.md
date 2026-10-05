@@ -44,7 +44,8 @@ Releases are automated via the `release.yml` GitHub Actions workflow:
 1. Bump the version in `pyproject.toml`.
 2. Move the `[Unreleased]` section in `CHANGELOG.md` to the new version.
 3. Commit and push to `main`.
-4. The workflow detects the version bump, creates a git tag, builds the
+4. Create and push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+5. The `release.yml` workflow triggers on the `v*` tag, builds the
    distributions, publishes to PyPI via Trusted Publishing (OIDC), and
    creates a GitHub Release with auto-generated notes.
 

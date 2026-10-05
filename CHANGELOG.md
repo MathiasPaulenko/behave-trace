@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `behave-trace run` now uses the scoped formatter class name
+  (`behave_trace.formatter:TraceFormatter`), so it works on projects without a
+  `[behave.formatters]` registration in `behave.ini`.
+- Toggling auto-run during a test run no longer clears the "Running" indicator
+  in the viewer (the `state` SSE event now includes the `running` flag).
+- Background steps duplicated in `scenario.background` now reflect real
+  execution results instead of staying `untested`, and each scenario gets its
+  own copy.
+- Scenario names passed to `--name` are regex-escaped, so "Re-run failed" and
+  "Run selected" work with names containing metacharacters.
+- `attach_dom` no longer injects `<base>` before the `<!DOCTYPE>` declaration.
+- `attach_screenshot` detects the real MIME type (PNG/JPEG/GIF/WebP) instead of
+  always reporting `image/png`.
+- The viewer's snapshot diff now bails out on very large snapshots instead of
+  freezing the tab (LCS matrix is O(m×n)).
+- `formatDuration` in the viewer handles durations ≥ 1 hour.
+- Attachments or log lines produced in `after_scenario` no longer leak into the
+  next scenario's first step.
+
+### Changed
+
+- Alpine.js is now vendored locally (`assets/js/vendor/`) instead of loaded
+  from a CDN — the viewer works offline and without unpinned dependencies.
+- Removed the dead `[project.entry-points."behave.formatters"]` section;
+  Behave does not discover entry points.
+- Added missing CSS classes for `untested`/`running`/`info` states.
+
+## 1.3.1 — 2026-08-06
+
+### Fixed
+
+- Unified author email in package metadata.
+- Updated version test for v1.3.1.
+
 ## 1.3.0 — 2026-08-05
 
 ### Added

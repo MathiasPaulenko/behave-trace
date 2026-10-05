@@ -70,8 +70,8 @@ SPA showing features, scenarios, steps, screenshots, and errors.
   the step list; clicking the feature opens it in the sidebar.
 - **Live progress** — real-time status updates via Server-Sent Events while tests
   are running from the viewer.
-- **Theme and state persistence** — sidebar, sort, and snapshot diff mode are
-  remembered across sessions.
+- **Theme and state persistence** — theme and scenario sort order are
+  remembered across sessions (`localStorage`).
 - **Port conflict detection** — clear error message instead of hanging when the
   requested port is already in use (especially on Windows).
 
@@ -189,7 +189,7 @@ behave_trace/
         server.py        # stdlib HTTP server (ThreadingHTTPServer)
         browser.py       # Browser opener (Chrome app mode)
     assets/
-        index.html       # SPA shell (Alpine.js from CDN)
+        index.html       # SPA shell (Alpine.js vendored locally)
         css/viewer.css   # Dark theme styles
         js/viewer.js     # Alpine.js component logic
 ```

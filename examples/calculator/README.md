@@ -2,7 +2,7 @@
 
 A simple Behave project that demonstrates **behave-trace** with:
 
-- Passing and failing scenarios
+- Passing scenarios and one that exercises error handling (division by zero)
 - Screenshot attachments (via `attach_screenshot`)
 - DOM snapshots (via `attach_dom`)
 - Log lines (via `log`)
@@ -33,4 +33,6 @@ behave-trace show trace.json
 - **Screenshot tab**: placeholder PNG captured after each operation
 - **Snapshot tab**: HTML rendering of the calculator display
 - **Console tab**: log lines showing entered values and results
-- **Error tab**: on the "Divide by zero" scenario, the ZeroDivisionError details
+- **Console tab**: on the "Divide by zero" scenario, the error logged via `log()`
+  (the `ZeroDivisionError` is caught inside the step, so the scenario passes;
+  to see a real failure and the **Error** tab, make an expectation fail)

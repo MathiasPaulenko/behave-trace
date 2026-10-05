@@ -599,6 +599,31 @@ class TestRerunEdgeCases:
         finally:
             server.stop()
 
+    def test_rerun_selected_filter_passes_scenario_names(self) -> None:
+        """filter='selected' forwards the scenario names to the callback."""
+        callback_event = threading.Event()
+        received: list = []
+
+        def cb(names):
+            received.append(names)
+            callback_event.set()
+
+        server, port = _start_server(rerun_callback=cb)
+        try:
+            data = json.dumps({"filter": "selected", "scenarios": ["A", "B"]}).encode()
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/rerun",
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req) as resp:
+                assert json.loads(resp.read())["status"] == "accepted"
+            assert callback_event.wait(timeout=5)
+            assert received == [["A", "B"]]
+        finally:
+            server.stop()
+
     def test_rerun_malformed_content_length(self) -> None:
         """Malformed Content-Length doesn't crash server."""
         server, port = _start_server(rerun_callback=mock.Mock())

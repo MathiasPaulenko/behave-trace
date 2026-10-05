@@ -3,7 +3,7 @@
 Usage::
 
     behave-trace show trace.json [--port PORT] [--no-browser]
-    behave-trace run [features_dir] [--port PORT] [--no-browser] [--tags TAGS]
+    behave-trace run [features_dir] [--port PORT] [--no-browser] [--tags TAGS] [--watch]
     behave-trace --version
 """
 

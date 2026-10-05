@@ -61,9 +61,6 @@ Changelog = "https://github.com/MathiasPaulenko/behave-trace/blob/main/CHANGELOG
 [project.scripts]
 behave-trace = "behave_trace.__main__:main"
 
-[project.entry-points."behave.formatters"]
-behave-trace = "behave_trace.formatter:TraceFormatter"
-
 [tool.hatch.build.targets.wheel]
 packages = ["behave_trace"]
 

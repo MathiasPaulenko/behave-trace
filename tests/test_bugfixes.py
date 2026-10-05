@@ -1210,3 +1210,216 @@ class TestBug18AttachNetworkNanInf:
         artifact = formatter.attach.call_args[0][0]
         parsed = _json.loads(artifact.text)
         assert parsed["body"]["error_rate"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Background steps: per-scenario copies synced with real execution results
+# ---------------------------------------------------------------------------
+
+
+class _StubBgStep:
+    """Behave step stub whose parent is a background."""
+
+    def __init__(self, parent_type: str = "background", status: str = "passed") -> None:
+        self.keyword = "Given"
+        self.name = "bg step"
+        self.status = status
+        self.duration = 0.5
+        self.location = "f.feature:3"
+        self.text = None
+        self.table = None
+        self.error_message = ""
+        self.exception = None
+        self.exc_traceback = ""
+        self.embeddings = []
+        self.log = []
+        self.parent = mock.Mock()
+        self.parent.type = parent_type
+
+
+class _StubScenario:
+    def __init__(self, name: str = "S") -> None:
+        self.name = name
+        self.status = "passed"
+        self.duration = 1.0
+        self.description = []
+        self.location = "f.feature:5"
+        self.tags = []
+        self.type = "scenario"
+        self.parent = None
+
+
+class _StubBackground:
+    def __init__(self) -> None:
+        self.name = "bg"
+        self.keyword = "Background"
+        self.location = "f.feature:3"
+        self.steps = [_StubBgStep(parent_type="background", status="untested")]
+
+
+class _StubFeature:
+    def __init__(self, background=None) -> None:
+        self.name = "F"
+        self.status = "passed"
+        self.duration = 1.0
+        self.description = []
+        self.location = "f.feature:1"
+        self.tags = []
+        self.background = background
+
+
+class TestBackgroundStepSync:
+    def test_background_step_status_synced_to_scenario_copy(self) -> None:
+        """Background steps in scenario.background must reflect real results."""
+        c = Collector()
+        c.on_feature(_StubFeature(background=_StubBackground()))
+        s = c.on_scenario(_StubScenario())
+        bg_step = _StubBgStep(parent_type="background", status="passed")
+        c.on_step(bg_step)
+        assert s.background is not None
+        assert s.background.steps[0].status == "passed"
+        assert s.background.steps[0].duration == 0.5
+
+    def test_scenario_background_is_not_shared_with_feature(self) -> None:
+        """Each scenario owns its background copy — no cross-scenario leaks."""
+        c = Collector()
+        feature = c.on_feature(_StubFeature(background=_StubBackground()))
+        s1 = c.on_scenario(_StubScenario(name="S1"))
+        c.on_step(_StubBgStep(status="failed"))
+        s2 = c.on_scenario(_StubScenario(name="S2"))
+        assert s2.background is not None
+        assert s2.background.steps[0].status == "untested"
+        # feature.background is the definition; it stays untested
+        assert feature.background is not None
+        assert feature.background.steps[0].status == "untested"
+        assert s1.background is not s2.background
+
+
+class TestPendingAttachmentsClearedOnScenarioEnd:
+    def test_pending_artifacts_do_not_bleed_into_next_scenario(self) -> None:
+        from behave_trace.models import Artifact
+
+        c = Collector()
+        c.on_feature(_StubFeature())
+        c.on_scenario(_StubScenario(name="S1"))
+        c.attach(Artifact(type="text"))
+        c.on_scenario_end(_StubScenario(name="S1"))
+        s2 = c.on_scenario(_StubScenario(name="S2"))
+        c.on_step(_StubBgStep(parent_type="scenario", status="passed"))
+        assert len(s2.steps) == 1
+        assert s2.steps[0].artifacts == []
+
+
+class _StubOutline:
+    def __init__(self) -> None:
+        self.type = "scenario_outline"
+        self.name = "My outline"
+        table = mock.Mock()
+        table.headings = ["a", "b"]
+        row = mock.Mock()
+        row.cells = ["1", "2"]
+        table.rows = [row]
+        example = mock.Mock()
+        example.table = table
+        self.examples = [example]
+
+
+class TestOutlineDetection:
+    def test_generated_scenario_marks_outline(self) -> None:
+        """Scenarios generated from an outline get is_outline, outline_name, examples."""
+        c = Collector()
+        c.on_feature(_StubFeature())
+        scenario_stub = _StubScenario()
+        scenario_stub.parent = _StubOutline()
+        s = c.on_scenario(scenario_stub)
+        assert s.is_outline is True
+        assert s.outline_name == "My outline"
+        assert s.examples is not None
+        assert s.examples.headings == ["a", "b"]
+        assert s.examples.rows == [["1", "2"]]
+
+
+# ---------------------------------------------------------------------------
+# attach_dom: DOCTYPE ordering and <base> injection
+# ---------------------------------------------------------------------------
+
+
+class TestAttachDomDoctype:
+    def _capture(self, html: str) -> str:
+        formatter = mock.Mock()
+        formatter.attach = mock.Mock()
+        formatter.log = mock.Mock()
+        runner = mock.Mock()
+        runner.formatters = [formatter]
+        context = mock.Mock()
+        context._runner = runner
+        source = mock.Mock()
+        source.current_url = "https://example.com"
+        source.page_source = html
+        attach_dom(context, source)
+        return formatter.attach.call_args[0][0].text
+
+    def test_base_after_doctype_when_no_head(self) -> None:
+        """<base> must not precede the DOCTYPE declaration."""
+        html = self._capture("<!DOCTYPE html><div>Hi</div>")
+        assert html.index("<!DOCTYPE") < html.index("<base")
+
+    def test_base_inside_head_with_attributes(self) -> None:
+        html = self._capture('<!DOCTYPE html><html><head data-x="1"></head></html>')
+        assert html.index("<base") > html.index("<head")
+
+    def test_uppercase_head_detected(self) -> None:
+        html = self._capture("<HTML><HEAD><TITLE>x</TITLE></HEAD></HTML>")
+        assert html.index("<base") > html.upper().index("<HEAD")
+
+
+# ---------------------------------------------------------------------------
+# attach_screenshot: MIME detection from magic bytes
+# ---------------------------------------------------------------------------
+
+
+class TestScreenshotMimeSniffing:
+    def _attach(self, data: bytes) -> str:
+        from behave_trace.attach import attach_screenshot
+
+        formatter = mock.Mock()
+        formatter.attach = mock.Mock()
+        formatter.log = mock.Mock()
+        runner = mock.Mock()
+        runner.formatters = [formatter]
+        context = mock.Mock()
+        context._runner = runner
+        attach_screenshot(context, data)
+        return formatter.attach.call_args[0][0].mime_type
+
+    def test_jpeg_detected(self) -> None:
+        assert self._attach(b"\xff\xd8\xff\xe0" + b"\x00" * 10) == "image/jpeg"
+
+    def test_png_default(self) -> None:
+        assert self._attach(b"\x89PNG\r\n\x1a\n" + b"\x00" * 10) == "image/png"
+
+    def test_gif_detected(self) -> None:
+        assert self._attach(b"GIF89a" + b"\x00" * 10) == "image/gif"
+
+
+# ---------------------------------------------------------------------------
+# Server: state notifications must carry the running flag
+# ---------------------------------------------------------------------------
+
+
+class TestAutoRunStateEvent:
+    def test_set_auto_run_keeps_running_flag(self) -> None:
+        """Toggling auto-run mid-run must not clear the running state."""
+        server = ViewerServer(None, port=0, watching=True)
+        events: list[dict] = []
+        server._state.sse_clients.append(__import__("queue").Queue())
+        q = server._state.sse_clients[0]
+        server.set_running(True)
+        while not q.empty():
+            events.append(q.get_nowait())
+        server.set_auto_run(False)
+        while not q.empty():
+            events.append(q.get_nowait())
+        state_events = [e for e in events if e.get("type") == "state"]
+        assert state_events
+        assert all(e.get("running") is True for e in state_events)

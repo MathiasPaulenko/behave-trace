@@ -12,14 +12,14 @@ Import from `behave_trace` in your `environment.py`:
 from behave_trace import attach_screenshot, attach_dom, attach_text, attach_network, log
 ```
 
-### `attach_screenshot(context, data, name)`
+### `attach_screenshot(context, source, name)`
 
 Attach a screenshot to the current step.
 
 | Parameter  | Type             | Description                                  |
 | ---------- | ---------------- | -------------------------------------------- |
-| `context`  | `RuleContext`    | Behave's context object.                     |
-| `data`     | `bytes`          | Screenshot data (PNG, JPEG, etc.).           |
+| `context`  | `Context`        | Behave's context object.                     |
+| `source`   | `bytes \| str \| Path \| WebDriver \| Page` | Image bytes, a file path, a Selenium WebDriver, or a Playwright Page. The MIME type is detected from magic bytes. |
 | `name`     | `str`            | Filename for the screenshot (e.g. `"after_click.png"`). |
 
 ```python
@@ -29,14 +29,14 @@ def after_step(context, step):
 
 The viewer displays screenshots in the filmstrip and the Screenshots tab.
 
-### `attach_dom(context, html, name)`
+### `attach_dom(context, source, name)`
 
 Attach a DOM snapshot (HTML) to the current step.
 
 | Parameter  | Type             | Description                                  |
 | ---------- | ---------------- | -------------------------------------------- |
-| `context`  | `RuleContext`    | Behave's context object.                     |
-| `html`     | `str`            | HTML content of the DOM snapshot.            |
+| `context`  | `Context`        | Behave's context object.                     |
+| `source`   | `str \| WebDriver \| Page` | HTML string, a Selenium WebDriver, or a Playwright Page. For drivers/pages, a `<base>` tag is injected so relative URLs resolve in the viewer. |
 | `name`     | `str`            | Filename (e.g. `"dom.html"`).                |
 
 ```python
@@ -52,7 +52,7 @@ Attach a plain text snippet to the current step.
 
 | Parameter  | Type             | Description                                  |
 | ---------- | ---------------- | -------------------------------------------- |
-| `context`  | `RuleContext`    | Behave's context object.                     |
+| `context`  | `Context`        | Behave's context object.                     |
 | `text`     | `str`            | Text content to attach.                      |
 | `name`     | `str`            | Filename (e.g. `"note.txt"`).                |
 
@@ -67,7 +67,7 @@ Attach an HTTP request/response as a network artifact to the current step.
 
 | Parameter      | Type             | Description                                  |
 | -------------- | ---------------- | -------------------------------------------- |
-| `context`      | `RuleContext`    | Behave's context object.                     |
+| `context`      | `Context`        | Behave's context object.                     |
 | `request_data` | `Any`            | Dict, Playwright Request/Response, or Selenium log entry. |
 | `name`         | `str`            | Artifact name (default: `"network"`).        |
 
@@ -82,7 +82,7 @@ Attach a log line to the current step.
 
 | Parameter  | Type             | Description                                  |
 | ---------- | ---------------- | -------------------------------------------- |
-| `context`  | `RuleContext`    | Behave's context object.                     |
+| `context`  | `Context`        | Behave's context object.                     |
 | `message`  | `str`            | Log message text.                            |
 | `level`    | `str`            | Log level: `"info"`, `"warning"`, or `"error"` (default: `"info"`). |
 
@@ -109,7 +109,7 @@ def after_step(context, step):
     # On failure, also capture DOM and error context
     if step.status == "failed":
         attach_dom(context, context.driver.page_source, name="failure_dom.html")
-        attach_text(context, str(step.error), name="error.txt")
+        attach_text(context, str(step.error_message), name="error.txt")
         log(context, f"Step failed: {step.name}", level="error")
 ```
 
@@ -120,10 +120,10 @@ Attachments are stored as `Artifact` objects in the trace model:
 ```python
 @dataclass(slots=True)
 class Artifact:
-    type: str           # "screenshot", "dom", "text", "network", or "log"
+    type: str           # "screenshot", "dom", "text", or "network"
     name: str           # filename
     mime_type: str      # e.g. "image/png", "text/html"
-    data_base64: str    # base64-encoded data
+    data_base64: str    # base64-encoded data (binary artifacts like screenshots)
     text: str | None    # text content (for DOM/text/network artifacts)
 ```
 

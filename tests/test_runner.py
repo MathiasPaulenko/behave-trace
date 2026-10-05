@@ -14,10 +14,18 @@ class TestBuildCommand:
         cmd = runner.build_command("features/", "trace.json")
         assert "behave" in cmd[0]
         assert "--format" in cmd
-        assert "behave-trace" in cmd
+        # Scoped class name: works without [behave.formatters] in behave.ini
+        assert "behave_trace.formatter:TraceFormatter" in cmd
         assert "-o" in cmd
         assert "trace.json" in cmd
         assert "features/" in cmd
+
+    def test_uses_scoped_formatter_name(self) -> None:
+        """Regression: Behave does not discover entry points; the bare name
+        'behave-trace' fails with LookupError on projects without behave.ini."""
+        runner = BehaveRunner(behave_executable="behave")
+        cmd = runner.build_command("features/", "trace.json")
+        assert "behave-trace" not in cmd
 
     def test_with_tags(self) -> None:
         runner = BehaveRunner(behave_executable="behave")
@@ -264,6 +272,27 @@ class TestRunFiltered:
         assert "@smoke" in cmd
         assert "--name" in cmd
         assert "My Scenario" in cmd
+
+    def test_scenario_names_are_regex_escaped(self) -> None:
+        """Regression: --name is a regex; names with metacharacters must be escaped."""
+        runner = BehaveRunner(behave_executable="behave")
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = ""
+        mock_result.stderr = ""
+
+        with patch("behave_trace.runner.subprocess.run", return_value=mock_result) as mock_run:
+            runner.run_filtered(
+                features_dir="features/",
+                output_path="trace.json",
+                scenario_names=["Add numbers -- @1.2 [x]"],
+            )
+
+        cmd = mock_run.call_args[0][0]
+        idx = cmd.index("--name") + 1
+        import re
+
+        assert re.fullmatch(cmd[idx], "Add numbers -- @1.2 [x]")
 
 
 class TestRunWithServerUrl:
