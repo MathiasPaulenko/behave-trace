@@ -10,7 +10,9 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -36,6 +38,26 @@ if TYPE_CHECKING:
     from behave_trace.models import Trace
     from behave_trace.runner import BehaveRunner
     from behave_trace.viewer.server import ViewerServer
+
+
+def _run_trace_path() -> Path:
+    """Temp trace path for ``behave-trace run``, unique per process.
+
+    A fixed filename would collide when two ``run`` instances execute
+    concurrently and could also serve a stale trace from a crashed run.
+    """
+    return Path(tempfile.gettempdir()) / f"behave-trace-{os.getpid()}.json"
+
+
+def _port_arg(value: str) -> int:
+    """argparse type for --port: int in range 0-65535."""
+    try:
+        port = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid port: {value!r}") from None
+    if not 0 <= port <= 65535:
+        raise argparse.ArgumentTypeError(f"port must be 0-65535, got {port}")
+    return port
 
 
 def _cmd_show(args: argparse.Namespace) -> int:
@@ -115,9 +137,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"Error: features directory not found: {features_dir}", file=sys.stderr)
         return 1
 
-    import tempfile
-
-    trace_path = Path(tempfile.gettempdir()) / "behave-trace-run.json"
+    trace_path = _run_trace_path()
+    # Drop any stale trace from a previous run that crashed before writing;
+    # otherwise a failed run would silently show outdated results.
+    trace_path.unlink(missing_ok=True)
     runner = BehaveRunner()
 
     def run_behave() -> int:
@@ -161,58 +184,68 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if trace is not None:
         _print_summary(trace, trace_path)
 
-    # Rerun callback for POST /api/rerun
+    # Rerun callback for POST /api/run and /api/rerun
     def rerun_callback(scenario_names: list[str] | None) -> None:
-        """Re-execute behave (optionally filtered) and update the server."""
+        """Re-execute behave (optionally filtered) and update the server.
+
+        Drains the pending-run queue via finish_run(): file changes queued
+        by the watcher while this run executes trigger one extra unfiltered
+        run instead of being silently dropped.
+        """
         if server is None:
             return
 
         run_cwd, run_features = _resolve_features(features_dir)
 
         try:
-            print("Re-running behave...")
-            if scenario_names:
-                result = runner.run_filtered(
-                    features_dir=run_features,
-                    output_path=trace_path,
-                    tags=args.tags,
-                    scenario_names=scenario_names,
-                    cwd=run_cwd,
-                    server_url=server.url,
-                )
-            else:
-                result = runner.run(
-                    features_dir=run_features,
-                    output_path=trace_path,
-                    tags=args.tags,
-                    cwd=run_cwd,
-                    server_url=server.url,
-                )
-            if result.stdout:
-                print(result.stdout, end="")
-            if result.stderr:
-                print(result.stderr, end="", file=sys.stderr)
+            names = scenario_names
+            while True:
+                print("Re-running behave...")
+                if names:
+                    result = runner.run_filtered(
+                        features_dir=run_features,
+                        output_path=trace_path,
+                        tags=args.tags,
+                        scenario_names=names,
+                        cwd=run_cwd,
+                        server_url=server.url,
+                    )
+                else:
+                    result = runner.run(
+                        features_dir=run_features,
+                        output_path=trace_path,
+                        tags=args.tags,
+                        cwd=run_cwd,
+                        server_url=server.url,
+                    )
+                if result.stdout:
+                    print(result.stdout, end="")
+                if result.stderr:
+                    print(result.stderr, end="", file=sys.stderr)
 
-            if result.trace_path is None or not result.trace_path.exists():
-                print("Error: behave did not produce a trace file.", file=sys.stderr)
-                return
+                if result.trace_path is None or not result.trace_path.exists():
+                    print("Error: behave did not produce a trace file.", file=sys.stderr)
+                else:
+                    try:
+                        new_trace = Serializer.load(result.trace_path)
+                    except Exception as exc:
+                        print(f"Error loading trace: {exc}", file=sys.stderr)
+                    else:
+                        _print_summary(new_trace, result.trace_path)
+                        server.update_trace(new_trace)
+                        print("Viewer updated.")
 
-            try:
-                new_trace = Serializer.load(result.trace_path)
-            except Exception as exc:
-                print(f"Error loading trace: {exc}", file=sys.stderr)
-                return
-
-            _print_summary(new_trace, result.trace_path)
-
-            if server is not None:
-                server.update_trace(new_trace)
-
-            print("Viewer updated.")
+                # Pending runs are always unfiltered: they exist to cover
+                # file changes that arrived mid-run, not to repeat a filter.
+                names = None
+                if server.finish_run() == 0:
+                    break
+                print("Files changed during run; re-running...")
         except Exception as exc:
             print(f"Error during re-run: {exc}", file=sys.stderr)
         finally:
-            server.set_running(False)
+            if server is not None and server.is_running():
+                server.set_running(False)
 
     # Start server (even without trace — enables "Run all" from UI)
     server = None
@@ -301,49 +334,52 @@ def _watch_loop(
             print("Auto-run is disabled; ignoring file changes.")
             return
 
-        if not server.try_set_running(True):
-            print("Already running; skipping re-run.")
+        if not server.request_run():
+            print("Already running; will re-run when it finishes.")
             return
 
-        print("Re-running behave...")
-
         try:
-            # Re-run behave
-            run_cwd, run_features = _resolve_features(features_dir)
-            result = runner.run(
-                features_dir=run_features,
-                output_path=trace_path,
-                tags=args.tags,
-                cwd=run_cwd,
-                server_url=server.url,
-            )
-            if result.stdout:
-                print(result.stdout, end="")
-            if result.stderr:
-                print(result.stderr, end="", file=sys.stderr)
+            while True:
+                print("Re-running behave...")
 
-            if result.trace_path is None or not result.trace_path.exists():
-                print("Error: behave did not produce a trace file.", file=sys.stderr)
-                return
+                # Re-run behave
+                run_cwd, run_features = _resolve_features(features_dir)
+                result = runner.run(
+                    features_dir=run_features,
+                    output_path=trace_path,
+                    tags=args.tags,
+                    cwd=run_cwd,
+                    server_url=server.url,
+                )
+                if result.stdout:
+                    print(result.stdout, end="")
+                if result.stderr:
+                    print(result.stderr, end="", file=sys.stderr)
 
-            # Reload trace
-            try:
-                new_trace = Serializer.load(result.trace_path)
-            except Exception as exc:
-                print(f"Error loading trace: {exc}", file=sys.stderr)
-                return
+                if result.trace_path is None or not result.trace_path.exists():
+                    print("Error: behave did not produce a trace file.", file=sys.stderr)
+                else:
+                    # Reload trace
+                    try:
+                        new_trace = Serializer.load(result.trace_path)
+                    except Exception as exc:
+                        print(f"Error loading trace: {exc}", file=sys.stderr)
+                    else:
+                        _print_summary(new_trace, result.trace_path)
 
-            _print_summary(new_trace, result.trace_path)
+                        # Update the server's trace in-place (no restart needed)
+                        if server is not None:
+                            server.update_trace(new_trace)
 
-            # Update the server's trace in-place (no restart needed)
-            if server is not None:
-                server.update_trace(new_trace)
+                        print("Viewer updated.")
 
-            print("Viewer updated.")
+                if server.finish_run() == 0:
+                    break
+                print("Files changed during run; re-running...")
         except Exception as exc:
             print(f"Error during watch re-run: {exc}", file=sys.stderr)
         finally:
-            if server is not None:
+            if server is not None and server.is_running():
                 server.set_running(False)
 
     watcher = FileWatcher(features_dir, on_change, debounce_ms=500)
@@ -375,7 +411,7 @@ def main(argv: list[str] | None = None) -> int:
     show_parser = subparsers.add_parser("show", help="Open the trace viewer for a .trace file.")
     show_parser.add_argument("trace_file", help="Path to the .trace file to visualize.")
     show_parser.add_argument(
-        "--port", type=int, default=0, help="Port to run the viewer on (0 = auto)."
+        "--port", type=_port_arg, default=0, help="Port to run the viewer on (0 = auto)."
     )
     show_parser.add_argument(
         "--no-browser", action="store_true", help="Do not open a browser window."
@@ -388,7 +424,7 @@ def main(argv: list[str] | None = None) -> int:
         "features_dir", nargs="?", default=".", help="Directory containing .feature files."
     )
     run_parser.add_argument(
-        "--port", type=int, default=0, help="Port to run the viewer on (0 = auto)."
+        "--port", type=_port_arg, default=0, help="Port to run the viewer on (0 = auto)."
     )
     run_parser.add_argument(
         "--no-browser", action="store_true", help="Do not open a browser window."

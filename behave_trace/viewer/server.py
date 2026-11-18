@@ -57,11 +57,26 @@ _SOURCE_EXTENSIONS: dict[str, str] = {
     ".go": "go",
     ".rs": "rust",
     ".feature": "gherkin",
+    ".txt": "text",
+    ".md": "markdown",
 }
 
 _DEFAULT_CONTEXT_LINES = 5
 
 _SSE_HEARTBEAT_S = 15.0
+
+# Per-connection socket timeout. Bounded reads/writes so a stalled client
+# cannot pin a handler thread forever; SSE sends heartbeats well under this.
+_SOCKET_TIMEOUT_S = 60.0
+
+# Maximum POST body accepted by the API (rerun scenario lists are small).
+_MAX_BODY_BYTES = 4 * 1024 * 1024
+
+# Maximum file size served by /api/source (protects against dumping huge files).
+_MAX_SOURCE_BYTES = 20 * 1024 * 1024
+
+# Origins allowed to POST to the API (CSRF protection for the local server).
+_ALLOWED_ORIGIN_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
 def _safe_int(value: Any, fallback: int = 0) -> int:
@@ -98,6 +113,7 @@ class _ServerState:
         self.sse_clients: list[queue.Queue[dict[str, Any]]] = []
         self.clients_lock = threading.Lock()
         self.running_lock = threading.Lock()
+        self.pending_run: int = 0
 
     def notify(self, event: dict[str, Any]) -> None:
         """Push an event to all connected SSE clients."""
@@ -129,7 +145,37 @@ class _ServerState:
             self.notify({"type": "run_started", "progressStart": self.progress_start})
         else:
             self.progress_start = None
+            self.pending_run = 0
             self.notify({"type": "run_completed"})
+
+    def request_run(self) -> bool:
+        """Acquire the running slot for a watch-triggered run.
+
+        Returns True when the caller owns the run and must call
+        :meth:`finish_run` when done. When a run is already in progress the
+        request is queued as pending (so file changes made during a run are
+        not silently dropped) and False is returned.
+        """
+        with self.running_lock:
+            if self.running:
+                self.pending_run += 1
+                return False
+            self._set_running_unlocked(True)
+            return True
+
+    def finish_run(self) -> int:
+        """Complete a watch-triggered run.
+
+        Returns the number of run requests queued while this one executed.
+        When non-zero, the running flag stays True so the caller can run
+        once more for the changes that arrived mid-run.
+        """
+        with self.running_lock:
+            pending = self.pending_run
+            self.pending_run = 0
+            if pending == 0:
+                self._set_running_unlocked(False)
+            return pending
 
 
 class ViewerServer:
@@ -186,12 +232,45 @@ class ViewerServer:
 
     def start(self) -> str:
         """Start the server and return the URL."""
+        if not 0 <= self.port <= 65535:
+            raise OSError(f"Invalid port: {self.port} (must be 0-65535)")
         state = self._state
         base_dir = self._base_dir
         rerun_cb = self.rerun_callback
 
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
+
+            def setup(self) -> None:
+                super().setup()
+                # Bound socket I/O so stalled clients can't pin threads.
+                self.request.settimeout(_SOCKET_TIMEOUT_S)
+
+            def _check_origin(self) -> bool:
+                """Reject POSTs from foreign origins (CSRF on localhost)."""
+                origin = self.headers.get("Origin")
+                if not origin:
+                    return True  # non-browser clients (urllib, curl) send none
+                try:
+                    host = urlparse(origin).hostname
+                except ValueError:
+                    return False
+                return host in _ALLOWED_ORIGIN_HOSTS
+
+            def _read_body(self) -> bytes | None:
+                """Read the request body with a size cap.
+
+                Returns the body bytes, or None after sending a 413 response.
+                """
+                try:
+                    content_length = int(self.headers.get("Content-Length", 0))
+                except (ValueError, TypeError):
+                    self.close_connection = True
+                    content_length = 0
+                if content_length > _MAX_BODY_BYTES:
+                    self._send_json_response({"error": "Request too large"}, status=413)
+                    return None
+                return self.rfile.read(content_length) if content_length > 0 else b"{}"
 
             def do_GET(self) -> None:
                 parsed = urlparse(self.path)
@@ -212,6 +291,10 @@ class ViewerServer:
                     self.send_error(404)
 
             def do_POST(self) -> None:
+                if not self._check_origin():
+                    self.close_connection = True
+                    self._send_json_response({"error": "Forbidden origin"}, status=403)
+                    return
                 parsed = urlparse(self.path)
                 if parsed.path == "/api/rerun":
                     self._handle_rerun(state, rerun_cb)
@@ -223,23 +306,14 @@ class ViewerServer:
                     self._handle_progress(state)
                 else:
                     # Consume request body to keep HTTP/1.1 keep-alive aligned
-                    try:
-                        content_length = int(self.headers.get("Content-Length", 0))
-                    except (ValueError, TypeError):
-                        self.close_connection = True
-                        content_length = 0
-                    if content_length > 0:
-                        self.rfile.read(content_length)
+                    self._read_body()
                     self._send_json_response({"error": "Not found"}, status=404)
 
             def _handle_progress(self, sstate: _ServerState) -> None:
                 """Handle POST /api/progress — update live progress."""
-                try:
-                    content_length = int(self.headers.get("Content-Length", 0))
-                except (ValueError, TypeError):
-                    self.close_connection = True
-                    content_length = 0
-                body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+                body = self._read_body()
+                if body is None:
+                    return
                 try:
                     payload = json.loads(body)
                 except json.JSONDecodeError:
@@ -250,13 +324,20 @@ class ViewerServer:
                     self._send_json_response({"error": "Expected JSON object"}, status=400)
                     return
 
-                completed = _safe_int(payload.get("completed", sstate.progress["completed"]))
-                total = _safe_int(payload.get("total", sstate.progress["total"]))
+                completed = max(
+                    0, _safe_int(payload.get("completed", sstate.progress["completed"]))
+                )
+                total = max(0, _safe_int(payload.get("total", sstate.progress["total"])))
                 sstate.progress = {
                     "completed": completed,
                     "total": total,
                 }
                 event_type = str(payload.get("event", "scenario_completed"))
+                # Only the collector's own event types are meaningful;
+                # anything else must not spoof client-side events (e.g.
+                # "trace_updated" would force pointless reloads).
+                if event_type not in ("scenario_started", "scenario_completed"):
+                    event_type = "scenario_completed"
                 sstate.notify(
                     {
                         "type": event_type,
@@ -269,12 +350,9 @@ class ViewerServer:
 
             def _handle_autorun(self, sstate: _ServerState) -> None:
                 """Handle POST /api/autorun — toggle auto-run on/off."""
-                try:
-                    content_length = int(self.headers.get("Content-Length", 0))
-                except (ValueError, TypeError):
-                    self.close_connection = True
-                    content_length = 0
-                body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+                body = self._read_body()
+                if body is None:
+                    return
                 try:
                     payload = json.loads(body)
                 except json.JSONDecodeError:
@@ -310,13 +388,8 @@ class ViewerServer:
             ) -> None:
                 """Handle POST /api/run — execute behave from scratch (all tests)."""
                 # Consume request body to keep HTTP/1.1 keep-alive aligned
-                try:
-                    content_length = int(self.headers.get("Content-Length", 0))
-                except (ValueError, TypeError):
-                    self.close_connection = True
-                    content_length = 0
-                if content_length > 0:
-                    self.rfile.read(content_length)
+                if self._read_body() is None:
+                    return
 
                 if cb is None:
                     self._send_json_response(
@@ -340,12 +413,9 @@ class ViewerServer:
             ) -> None:
                 """Handle POST /api/rerun — re-execute behave with optional filter."""
                 # Consume request body first to keep HTTP/1.1 keep-alive aligned
-                try:
-                    content_length = int(self.headers.get("Content-Length", 0))
-                except (ValueError, TypeError):
-                    self.close_connection = True
-                    content_length = 0
-                body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+                body = self._read_body()
+                if body is None:
+                    return
 
                 if cb is None:
                     self._send_json_response(
@@ -374,8 +444,20 @@ class ViewerServer:
                     return
 
                 scenario_names: list[str] | None = None
-                if filter_type in ("failed", "selected") and isinstance(scenarios, list):
+                if filter_type in ("failed", "selected"):
+                    if not isinstance(scenarios, list) or not scenarios:
+                        self._send_json_response(
+                            {"error": "Missing non-empty 'scenarios' list"},
+                            status=400,
+                        )
+                        return
                     scenario_names = [str(s) for s in scenarios if s is not None]
+                    if not scenario_names:
+                        self._send_json_response(
+                            {"error": "No valid scenario names"},
+                            status=400,
+                        )
+                        return
 
                 # Atomically check-and-set running to prevent two concurrent runs
                 with sstate.running_lock:
@@ -485,6 +567,20 @@ class ViewerServer:
                     candidate.relative_to(base)
                 except ValueError:
                     self._send_json_response({"error": "Path outside base directory"}, status=403)
+                    return
+
+                # Extension allowlist: the endpoint exists to show test source
+                # code, not arbitrary files inside the project (.env, keys...).
+                if candidate.suffix.lower() not in _SOURCE_EXTENSIONS:
+                    self._send_json_response({"error": "File type not allowed"}, status=403)
+                    return
+
+                try:
+                    if candidate.stat().st_size > _MAX_SOURCE_BYTES:
+                        self._send_json_response({"error": "File too large"}, status=413)
+                        return
+                except OSError:
+                    self._send_json_response({"error": f"File not found: {file_path}"}, status=404)
                     return
 
                 if not candidate.exists() or not candidate.is_file():
@@ -650,6 +746,18 @@ class ViewerServer:
                 return False
             self._state._set_running_unlocked(running)
             return True
+
+    def request_run(self) -> bool:
+        """Acquire the running slot for a watch-triggered run.
+
+        Unlike :meth:`try_set_running`, calls made while a run is in
+        progress are remembered as pending so file changes are not lost.
+        """
+        return self._state.request_run()
+
+    def finish_run(self) -> int:
+        """Complete a watch-triggered run; return queued pending requests."""
+        return self._state.finish_run()
 
     def set_auto_run(self, auto_run: bool) -> None:
         """Set the auto-run state and notify SSE clients."""

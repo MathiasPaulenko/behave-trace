@@ -90,7 +90,7 @@ class FileWatcher:
 
         watcher = self
 
-        class Handler(FileSystemEventHandler):
+        class Handler(FileSystemEventHandler):  # type: ignore[misc]
             def on_modified(self, event: object) -> None:
                 if getattr(event, "is_directory", False):
                     return
@@ -101,6 +101,20 @@ class FileWatcher:
 
             def on_created(self, event: object) -> None:
                 self.on_modified(event)
+
+            def on_deleted(self, event: object) -> None:
+                # A deleted .feature/.py changes the suite; re-run.
+                self.on_modified(event)
+
+            def on_moved(self, event: object) -> None:
+                # Editors often save via rename; watch the destination path.
+                if getattr(event, "is_directory", False):
+                    return
+                dest = getattr(event, "dest_path", "")
+                if _is_watched(dest):
+                    watcher._on_file_changed(dest)
+                else:
+                    self.on_modified(event)
 
         observer = Observer()
         observer.schedule(Handler(), str(self._directory), recursive=True)
@@ -165,6 +179,7 @@ class FileWatcher:
             for f in list(snapshots):
                 if f not in current_files:
                     del snapshots[f]
+                    changed.append(str(f))  # deletions also change the suite
 
             if changed:
                 with contextlib.suppress(Exception):
