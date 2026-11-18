@@ -204,9 +204,10 @@ class BehaveRunner:
         extra_args: list[str] = []
         if scenario_names:
             for name in scenario_names:
-                # --name is a regex: escape metacharacters so names like
-                # "Foo -- @1.2" or "Price [x]" match literally.
-                extra_args.extend(["--name", _escape_regex(name)])
+                # --name is a regex searched inside the scenario name: escape
+                # metacharacters and anchor it so "Foo" does not also match
+                # "Foo bar" scenarios.
+                extra_args.extend(["--name", f"^{_escape_regex(name)}$"])
         return self.run(
             features_dir=features_dir,
             output_path=output_path,

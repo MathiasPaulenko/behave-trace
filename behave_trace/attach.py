@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import html as html_module
+import re
 from pathlib import Path
 from typing import Any
 
@@ -141,21 +142,22 @@ def attach_dom(context: Any, source: Any, name: str = "dom.html") -> None:
         escaped_url = html_module.escape(base_url, quote=True)
         base_tag = f'<base href="{escaped_url}">'
         lower = html.lower()
-        head_idx = lower.find("<head")
-        if head_idx != -1:
+        # Match the real <head> tag only — "<header>" also starts with "<head".
+        head_match = re.search(r"<head[\s>]", lower)
+        if head_match is not None:
             # Insert right after the opening <head ...> tag, preserving attributes
-            close_idx = html.find(">", head_idx)
+            close_idx = html.find(">", head_match.start())
             if close_idx != -1:
                 html = html[: close_idx + 1] + base_tag + html[close_idx + 1 :]
             else:
                 html = base_tag + html
         else:
             doctype_idx = lower.find("<!doctype")
-            html_idx = lower.find("<html")
-            if html_idx != -1:
+            html_match = re.search(r"<html[\s>]", lower)
+            if html_match is not None:
                 # No <head>: insert after <html ...> so the tag lands inside the
                 # document (browsers hoist <base> into <head>).
-                close_idx = html.find(">", html_idx)
+                close_idx = html.find(">", html_match.start())
                 if close_idx != -1:
                     html = html[: close_idx + 1] + base_tag + html[close_idx + 1 :]
                 else:
@@ -248,6 +250,11 @@ def _normalize_network_data(source: Any) -> dict[str, Any] | None:
     Returns None if the source cannot be recognized.
     """
     if isinstance(source, dict):
+        # Selenium CDP log entry: {"level": ..., "message": "<json>"} — the
+        # real Network.* event travels as a JSON string inside "message".
+        selenium = _parse_selenium_message(source.get("message"))
+        if selenium is not None:
+            return selenium
         return {
             "method": source.get("method", ""),
             "url": source.get("url", ""),
@@ -311,3 +318,43 @@ def _normalize_network_data(source: Any) -> dict[str, Any] | None:
         return _normalize_network_data(entry)
 
     return None
+
+
+def _parse_selenium_message(message: Any) -> dict[str, Any] | None:
+    """Extract request/response data from a Selenium CDP log ``message``.
+
+    ``driver.get_log("performance")`` entries carry a JSON string shaped
+    like ``{"message": {"method": "Network.*", "params": {...}}}`` where
+    ``params`` holds ``request`` and/or ``response`` objects.
+    Returns None when the value is not a Selenium CDP event.
+    """
+    if not isinstance(message, str) or not message.lstrip().startswith("{"):
+        return None
+    import json as _json
+
+    try:
+        parsed = _json.loads(message)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    inner = parsed.get("message")
+    if not isinstance(inner, dict):
+        return None
+    params = inner.get("params")
+    if not isinstance(params, dict):
+        return None
+    req = params.get("request")
+    resp = params.get("response")
+    if not isinstance(req, dict) and not isinstance(resp, dict):
+        return None
+    req = req if isinstance(req, dict) else {}
+    resp = resp if isinstance(resp, dict) else {}
+    return {
+        "method": req.get("method", ""),
+        "url": req.get("url") or resp.get("url", ""),
+        "status": resp.get("status"),
+        "headers": req.get("headers") or resp.get("headers") or {},
+        "body": req.get("postData"),
+        "response": resp or None,
+    }

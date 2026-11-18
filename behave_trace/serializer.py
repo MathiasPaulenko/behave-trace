@@ -13,6 +13,9 @@ from __future__ import annotations
 import contextlib
 import json
 import math
+import os
+import tempfile
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -88,6 +91,18 @@ def _as_int(value: Any, fallback: int = 0) -> int:
 class Serializer:
     """Serialize and deserialize Trace objects."""
 
+    # Per-path locks: concurrent saves to the same destination can fail on
+    # Windows (os.replace rejects a replace while another replace is in
+    # flight) and are racy in outcome everywhere else.
+    _save_locks: dict[str, threading.Lock] = {}
+    _save_locks_guard = threading.Lock()
+
+    @classmethod
+    def _lock_for(cls, path: Path) -> threading.Lock:
+        key = str(path.resolve())
+        with cls._save_locks_guard:
+            return cls._save_locks.setdefault(key, threading.Lock())
+
     @staticmethod
     def save(trace: Trace, path: str | Path) -> Path:
         """Save a trace to a JSON file.
@@ -102,10 +117,22 @@ class Serializer:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         data = _sanitize_floats(as_dict(trace))
-        p.write_text(
-            json.dumps(data, indent=2, default=_json_default, ensure_ascii=False, allow_nan=False),
-            encoding="utf-8",
+        text = json.dumps(
+            data, indent=2, default=_json_default, ensure_ascii=False, allow_nan=False
         )
+        # Write-then-rename: a crash mid-write must not leave a corrupt trace.
+        # mkstemp gives a unique sibling name — two threads saving the same
+        # path in one process must not share a temp file.
+        lock = Serializer._lock_for(p)
+        with lock:
+            fd, tmp_name = tempfile.mkstemp(dir=p.parent, prefix=f"{p.name}.", suffix=".tmp")
+            tmp_path = Path(tmp_name)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(text)
+                os.replace(tmp_path, p)
+            finally:
+                tmp_path.unlink(missing_ok=True)
         return p
 
     @staticmethod
