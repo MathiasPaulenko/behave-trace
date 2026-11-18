@@ -525,6 +525,29 @@ class TestProgressEdgeCases:
         finally:
             server.stop()
 
+    def test_progress_chunked_encoding_rejected(self) -> None:
+        """Transfer-Encoding: chunked must not poison keep-alive connections."""
+        server, port = _start_server()
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2)
+            sock.connect(("127.0.0.1", port))
+            sock.sendall(
+                b"POST /api/progress HTTP/1.1\r\n"
+                b"Host: 127.0.0.1\r\n"
+                b"Transfer-Encoding: chunked\r\n"
+                b"\r\n"
+                b"5\r\nhello\r\n0\r\n\r\n"
+            )
+            resp = sock.recv(4096)
+            sock.close()
+            assert b"411" in resp
+            # Server still healthy
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/trace") as r:
+                assert r.status == 200
+        finally:
+            server.stop()
+
     def test_progress_non_dict_json(self) -> None:
         server, port = _start_server()
         try:

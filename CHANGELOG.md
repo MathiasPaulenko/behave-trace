@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `TraceFormatter.close()` now flushes the open scenario/feature lifecycle
   when Behave aborts mid-suite without calling `eof()` — interrupted runs no
   longer leave the last feature `untested` with missing steps.
+- POST requests with `Transfer-Encoding: chunked` are rejected with 411 —
+  the undecoded body would otherwise poison the next request on the same
+  keep-alive connection.
 
 ## 1.4.1 — 2026-11-18
 

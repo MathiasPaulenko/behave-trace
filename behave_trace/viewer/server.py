@@ -260,8 +260,17 @@ class ViewerServer:
             def _read_body(self) -> bytes | None:
                 """Read the request body with a size cap.
 
-                Returns the body bytes, or None after sending a 413 response.
+                Returns the body bytes, or None after sending an error
+                response (413 too large, 411 unsupported encoding).
                 """
+                if self.headers.get("Transfer-Encoding"):
+                    # Not decoded by http.server: the bytes would poison the
+                    # next request on this keep-alive connection.
+                    self.close_connection = True
+                    self._send_json_response(
+                        {"error": "Chunked encoding not supported"}, status=411
+                    )
+                    return None
                 try:
                     content_length = int(self.headers.get("Content-Length", 0))
                 except (ValueError, TypeError):
