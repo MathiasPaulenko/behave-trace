@@ -72,7 +72,7 @@ behave-trace --version
 ```
 
 ```text
-1.4.1
+1.4.2
 ```
 
 You can also verify the Python API is importable:
