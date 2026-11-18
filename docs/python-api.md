@@ -26,6 +26,25 @@ print(behave_trace.__version__)
 ::: behave_trace.models.Step
 ::: behave_trace.models.Artifact
 
+## Status and log-level helpers
+
+```python
+from behave_trace import STATUS_FAILED, STATUS_PASSED, normalize_status
+
+if step.status == STATUS_FAILED:
+    ...
+canonical = normalize_status(step.status)  # Behave statuses -> canonical names
+```
+
+::: behave_trace.models.STATUS_UNTESTED
+::: behave_trace.models.STATUS_RUNNING
+::: behave_trace.models.STATUS_PASSED
+::: behave_trace.models.STATUS_FAILED
+::: behave_trace.models.STATUS_SKIPPED
+::: behave_trace.models.STATUS_UNDEFINED
+::: behave_trace.models.normalize_status
+::: behave_trace.models.normalize_level
+
 ## Serializer
 
 ::: behave_trace.serializer.Serializer
