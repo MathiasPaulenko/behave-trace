@@ -19,6 +19,7 @@ from __future__ import annotations
 from .attach import attach_dom, attach_network, attach_screenshot, attach_text, log
 from .formatter import TraceFormatter
 from .models import (
+    ALL_STATUSES,
     ARTIFACT_DOM,
     ARTIFACT_LOG,
     ARTIFACT_NETWORK,
@@ -27,6 +28,12 @@ from .models import (
     LOG_ERROR,
     LOG_INFO,
     LOG_WARNING,
+    STATUS_FAILED,
+    STATUS_PASSED,
+    STATUS_RUNNING,
+    STATUS_SKIPPED,
+    STATUS_UNDEFINED,
+    STATUS_UNTESTED,
     Artifact,
     Background,
     DataTable,
@@ -38,6 +45,7 @@ from .models import (
     Trace,
     TraceStats,
     normalize_level,
+    normalize_status,
 )
 
 __version__ = "1.4.0"
@@ -52,6 +60,7 @@ except Exception:
     pass
 
 __all__ = [
+    "ALL_STATUSES",
     "ARTIFACT_DOM",
     "ARTIFACT_LOG",
     "ARTIFACT_NETWORK",
@@ -66,6 +75,12 @@ __all__ = [
     "LOG_ERROR",
     "LOG_INFO",
     "LOG_WARNING",
+    "STATUS_FAILED",
+    "STATUS_PASSED",
+    "STATUS_RUNNING",
+    "STATUS_SKIPPED",
+    "STATUS_UNDEFINED",
+    "STATUS_UNTESTED",
     "Scenario",
     "Step",
     "Trace",
@@ -77,4 +92,5 @@ __all__ = [
     "attach_text",
     "log",
     "normalize_level",
+    "normalize_status",
 ]
