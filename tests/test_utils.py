@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from behave_trace.utils import format_duration, safe_float, safe_str
 
 # ---------------------------------------------------------------------------
@@ -119,6 +121,14 @@ class TestFormatDuration:
         import math
 
         assert format_duration(-math.inf) == "0ms"
+
+    @pytest.mark.parametrize("bad", ["abc", [1], {"a": 1}, object()])
+    def test_non_numeric_input_returns_zero(self, bad) -> None:
+        """Non-convertible inputs must not raise — format is display-only."""
+        assert format_duration(bad) == "0ms"
+
+    def test_numeric_string_formats(self) -> None:
+        assert format_duration("2.5") == "2.50s"
 
 
 # ---------------------------------------------------------------------------

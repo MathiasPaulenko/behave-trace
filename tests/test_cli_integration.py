@@ -290,7 +290,7 @@ class TestCmdRunUnit:
         mock_server.start = mock.Mock(return_value="http://127.0.0.1:8080")
         mock_server.stop = mock.Mock()
         mock_server.get_auto_run = mock.Mock(return_value=False)
-        mock_server.try_set_running = mock.Mock(return_value=False)
+        mock_server.request_run = mock.Mock(return_value=False)
 
         with (
             mock.patch("behave_trace.runner.BehaveRunner", return_value=mock_runner),
@@ -520,7 +520,8 @@ class TestWatchLoopUnit:
         mock_server = mock.Mock()
         mock_server.url = "http://127.0.0.1:8080"
         mock_server.get_auto_run = mock.Mock(return_value=False)
-        mock_server.try_set_running = mock.Mock(return_value=True)
+        mock_server.request_run = mock.Mock(return_value=True)
+        mock_server.finish_run = mock.Mock(return_value=0)
         mock_server.stop = mock.Mock()
 
         on_change_callback = []
@@ -555,7 +556,7 @@ class TestWatchLoopUnit:
         mock_server = mock.Mock()
         mock_server.url = "http://127.0.0.1:8080"
         mock_server.get_auto_run = mock.Mock(return_value=True)
-        mock_server.try_set_running = mock.Mock(return_value=False)
+        mock_server.request_run = mock.Mock(return_value=False)
         mock_server.stop = mock.Mock()
 
         callbacks = []
@@ -605,8 +606,10 @@ class TestWatchLoopUnit:
         mock_server = mock.Mock()
         mock_server.url = "http://127.0.0.1:8080"
         mock_server.get_auto_run = mock.Mock(return_value=True)
-        mock_server.try_set_running = mock.Mock(return_value=True)
+        mock_server.request_run = mock.Mock(return_value=True)
+        mock_server.finish_run = mock.Mock(return_value=0)
         mock_server.set_running = mock.Mock()
+        mock_server.is_running = mock.Mock(return_value=True)
         mock_server.update_trace = mock.Mock()
         mock_server.stop = mock.Mock()
 
@@ -658,8 +661,10 @@ class TestWatchLoopUnit:
         mock_server = mock.Mock()
         mock_server.url = "http://127.0.0.1:8080"
         mock_server.get_auto_run = mock.Mock(return_value=True)
-        mock_server.try_set_running = mock.Mock(return_value=True)
+        mock_server.request_run = mock.Mock(return_value=True)
+        mock_server.finish_run = mock.Mock(return_value=0)
         mock_server.set_running = mock.Mock()
+        mock_server.is_running = mock.Mock(return_value=True)
         mock_server.stop = mock.Mock()
 
         callbacks = []
@@ -701,8 +706,10 @@ class TestWatchLoopUnit:
         mock_server = mock.Mock()
         mock_server.url = "http://127.0.0.1:8080"
         mock_server.get_auto_run = mock.Mock(return_value=True)
-        mock_server.try_set_running = mock.Mock(return_value=True)
+        mock_server.request_run = mock.Mock(return_value=True)
+        mock_server.finish_run = mock.Mock(return_value=0)
         mock_server.set_running = mock.Mock()
+        mock_server.is_running = mock.Mock(return_value=True)
         mock_server.stop = mock.Mock()
 
         callbacks = []
@@ -750,8 +757,10 @@ class TestWatchLoopUnit:
         mock_server = mock.Mock()
         mock_server.url = "http://127.0.0.1:8080"
         mock_server.get_auto_run = mock.Mock(return_value=True)
-        mock_server.try_set_running = mock.Mock(return_value=True)
+        mock_server.request_run = mock.Mock(return_value=True)
+        mock_server.finish_run = mock.Mock(return_value=0)
         mock_server.set_running = mock.Mock()
+        mock_server.is_running = mock.Mock(return_value=True)
         mock_server.stop = mock.Mock()
 
         callbacks = []
@@ -826,6 +835,8 @@ class TestRerunCallback:
         mock_server.stop = mock.Mock()
         mock_server.update_trace = mock.Mock()
         mock_server.set_running = mock.Mock()
+        mock_server.is_running = mock.Mock(return_value=True)
+        mock_server.finish_run = mock.Mock(return_value=0)
 
         # Capture the rerun callback
         original_init = mock.Mock(return_value=mock_server)
@@ -872,6 +883,8 @@ class TestRerunCallback:
         mock_server.start = mock.Mock(return_value="http://127.0.0.1:8080")
         mock_server.stop = mock.Mock()
         mock_server.set_running = mock.Mock()
+        mock_server.is_running = mock.Mock(return_value=True)
+        mock_server.finish_run = mock.Mock(return_value=0)
 
         with (
             mock.patch("behave_trace.runner.BehaveRunner", return_value=mock_runner),

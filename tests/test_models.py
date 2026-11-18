@@ -13,6 +13,7 @@ from behave_trace.models import (
     LOG_WARNING,
     STATUS_FAILED,
     STATUS_PASSED,
+    STATUS_RUNNING,
     STATUS_SKIPPED,
     STATUS_UNDEFINED,
     STATUS_UNTESTED,
@@ -327,6 +328,25 @@ class TestTrace:
     def test_overall_status_undefined(self) -> None:
         trace = Trace(features=[Feature(name="F1", status=STATUS_UNDEFINED)])
         assert trace.overall_status == STATUS_UNDEFINED
+
+    def test_overall_status_running_beats_passed(self) -> None:
+        """A mid-run trace (one feature done, another running) is 'running'."""
+        trace = Trace(
+            features=[
+                Feature(name="F1", status=STATUS_PASSED),
+                Feature(name="F2", status=STATUS_RUNNING),
+            ],
+        )
+        assert trace.overall_status == STATUS_RUNNING
+
+    def test_overall_status_running_beats_skipped(self) -> None:
+        trace = Trace(
+            features=[
+                Feature(name="F1", status=STATUS_SKIPPED),
+                Feature(name="F2", status=STATUS_RUNNING),
+            ],
+        )
+        assert trace.overall_status == STATUS_RUNNING
 
     def test_to_dict_includes_overall_status(self) -> None:
         trace = Trace(features=[Feature(name="F1", status=STATUS_FAILED)])

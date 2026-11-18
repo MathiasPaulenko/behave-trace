@@ -213,8 +213,9 @@ class TestRunFiltered:
 
         cmd = mock_run.call_args[0][0]
         assert "--name" in cmd
-        assert "Scenario A" in cmd
-        assert "Scenario B" in cmd
+        # Names are anchored regexes: ^escaped name$
+        assert "^Scenario A$" in cmd
+        assert "^Scenario B$" in cmd
         # Two --name flags
         assert cmd.count("--name") == 2
 
@@ -271,7 +272,7 @@ class TestRunFiltered:
         assert "--tags" in cmd
         assert "@smoke" in cmd
         assert "--name" in cmd
-        assert "My Scenario" in cmd
+        assert "^My Scenario$" in cmd
 
     def test_scenario_names_are_regex_escaped(self) -> None:
         """Regression: --name is a regex; names with metacharacters must be escaped."""
@@ -293,6 +294,8 @@ class TestRunFiltered:
         import re
 
         assert re.fullmatch(cmd[idx], "Add numbers -- @1.2 [x]")
+        # Anchored: it must not match longer scenario names either
+        assert not re.fullmatch(cmd[idx], "Add numbers -- @1.2 [x] extra")
 
 
 class TestRunWithServerUrl:

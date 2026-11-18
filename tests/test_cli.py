@@ -111,7 +111,7 @@ class TestVersion:
         assert exc_info.value.code == 0
         captured = capsys.readouterr()
         assert "behave-trace" in captured.out
-        assert "1.4.0" in captured.out
+        assert "1.4.1" in captured.out
 
 
 # ---------------------------------------------------------------------------
@@ -398,7 +398,7 @@ class TestRunExceptionSafety:
         mock_runner = MagicMock()
         mock_server = MagicMock()
         mock_server.get_auto_run.return_value = True
-        mock_server.try_set_running.return_value = False
+        mock_server.request_run.return_value = False
 
         import argparse
 

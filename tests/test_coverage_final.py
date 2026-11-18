@@ -166,6 +166,8 @@ class TestRerunCallbackDirect:
         mock_server.stop = mock.Mock()
         mock_server.update_trace = mock.Mock()
         mock_server.set_running = mock.Mock()
+        mock_server.is_running = mock.Mock(return_value=True)
+        mock_server.finish_run = mock.Mock(return_value=0)
 
         captured_callbacks: list = []
 
@@ -225,6 +227,8 @@ class TestRerunCallbackDirect:
         mock_server.stop = mock.Mock()
         mock_server.update_trace = mock.Mock()
         mock_server.set_running = mock.Mock()
+        mock_server.is_running = mock.Mock(return_value=True)
+        mock_server.finish_run = mock.Mock(return_value=0)
 
         captured_callbacks: list = []
 
@@ -278,6 +282,8 @@ class TestRerunCallbackDirect:
         mock_server.start = mock.Mock(return_value="http://127.0.0.1:8080")
         mock_server.stop = mock.Mock()
         mock_server.set_running = mock.Mock()
+        mock_server.is_running = mock.Mock(return_value=True)
+        mock_server.finish_run = mock.Mock(return_value=0)
 
         captured_callbacks: list = []
 
@@ -329,6 +335,8 @@ class TestRerunCallbackDirect:
         mock_server.start = mock.Mock(return_value="http://127.0.0.1:8080")
         mock_server.stop = mock.Mock()
         mock_server.set_running = mock.Mock()
+        mock_server.is_running = mock.Mock(return_value=True)
+        mock_server.finish_run = mock.Mock(return_value=0)
 
         captured_callbacks: list = []
 
@@ -385,6 +393,8 @@ class TestRerunCallbackDirect:
         mock_server.start = mock.Mock(return_value="http://127.0.0.1:8080")
         mock_server.stop = mock.Mock()
         mock_server.set_running = mock.Mock()
+        mock_server.is_running = mock.Mock(return_value=True)
+        mock_server.finish_run = mock.Mock(return_value=0)
 
         captured_callbacks: list = []
 
@@ -479,6 +489,8 @@ class TestRerunCallbackDirect:
         mock_server.stop = mock.Mock()
         mock_server.update_trace = mock.Mock()
         mock_server.set_running = mock.Mock()
+        mock_server.is_running = mock.Mock(return_value=True)
+        mock_server.finish_run = mock.Mock(return_value=0)
 
         captured_callbacks: list = []
 
@@ -502,6 +514,64 @@ class TestRerunCallbackDirect:
 
         captured = capsys.readouterr()
         assert "Some warning" in captured.err
+
+    def test_rerun_callback_drains_pending_runs(self, tmp_path: Path, capsys) -> None:
+        """Watch changes queued during a UI rerun must trigger an extra run.
+
+        Regression: the callback used to end with set_running(False), which
+        reset pending_run to 0 and silently dropped file changes that
+        arrived mid-run.
+        """
+        args = _make_args(features_dir=str(tmp_path), port=0, no_browser=True)
+
+        trace = _make_trace()
+        trace_path = Path(tempfile.gettempdir()) / "behave-trace-run.json"
+        trace_path.write_text("{}")
+
+        mock_runner = mock.Mock()
+        result = mock.Mock()
+        result.stdout = ""
+        result.stderr = ""
+        result.trace_path = trace_path
+        mock_runner.run = mock.Mock(return_value=result)
+        mock_runner.run_filtered = mock.Mock(return_value=result)
+
+        mock_server = mock.Mock()
+        mock_server.url = "http://127.0.0.1:8080"
+        mock_server.start = mock.Mock(return_value="http://127.0.0.1:8080")
+        mock_server.stop = mock.Mock()
+        mock_server.update_trace = mock.Mock()
+        mock_server.set_running = mock.Mock()
+        mock_server.is_running = mock.Mock(return_value=False)
+        # One watch request queued mid-run, then drained
+        mock_server.finish_run = mock.Mock(side_effect=[1, 0])
+
+        captured_callbacks: list = []
+
+        def capture_server(*args, **kwargs):
+            cb = kwargs.get("rerun_callback")
+            if cb:
+                captured_callbacks.append(cb)
+            return mock_server
+
+        with (
+            mock.patch("behave_trace.runner.BehaveRunner", return_value=mock_runner),
+            mock.patch("behave_trace.serializer.Serializer.load", return_value=trace),
+            mock.patch("behave_trace.viewer.server.ViewerServer", side_effect=capture_server),
+            mock.patch("behave_trace.viewer.browser.open_app"),
+            mock.patch("sys.platform", "win32"),
+            mock.patch("threading.Event.wait", side_effect=KeyboardInterrupt),
+        ):
+            _cmd_run(args)
+            assert len(captured_callbacks) == 1
+            captured_callbacks[0](["S1"])
+
+        # Filtered run first, then one unfiltered run for the queued changes
+        mock_runner.run_filtered.assert_called_once()
+        assert mock_runner.run.call_count == 2  # initial + pending drain
+        assert mock_server.finish_run.call_count == 2
+        captured = capsys.readouterr()
+        assert "Files changed during run; re-running" in captured.out
 
 
 # ---------------------------------------------------------------------------
@@ -529,8 +599,10 @@ class TestWatchLoopStderr:
         mock_server = mock.Mock()
         mock_server.url = "http://127.0.0.1:8080"
         mock_server.get_auto_run = mock.Mock(return_value=True)
-        mock_server.try_set_running = mock.Mock(return_value=True)
+        mock_server.request_run = mock.Mock(return_value=True)
+        mock_server.finish_run = mock.Mock(return_value=0)
         mock_server.set_running = mock.Mock()
+        mock_server.is_running = mock.Mock(return_value=True)
         mock_server.update_trace = mock.Mock()
         mock_server.stop = mock.Mock()
 

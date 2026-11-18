@@ -872,32 +872,33 @@ class TestRerun:
         finally:
             server.stop()
 
-    def test_rerun_scenarios_as_non_list_does_not_crash(self) -> None:
+    def test_rerun_scenarios_as_non_list_returns_400(self) -> None:
         """Regression for Bug 32: scenarios as non-list type must not crash.
 
-        If scenarios is a string or int, the server should not raise TypeError.
-        It should treat it as no scenario names (None).
+        A ``failed``/``selected`` filter without a proper scenarios list is a
+        client bug; silently treating it as "run everything" would execute
+        the whole suite instead of the filtered set. The server rejects it
+        with 400 and never invokes the callback.
         """
         import threading
 
-        received_scenarios: list[list[str] | None] = []
         callback_called = threading.Event()
 
         def callback(scenarios: list[str] | None) -> None:
-            received_scenarios.append(scenarios)
             callback_called.set()
 
         trace = make_trace()
         server = ViewerServer(trace, port=0, rerun_callback=callback)
         server.start()
         try:
-            # scenarios as string — should not iterate characters
-            post(
+            # scenarios as string — must not iterate characters nor run all
+            status, _, body = post(
                 f"{server.url}/api/rerun",
                 {"filter": "failed", "scenarios": "not_a_list"},
             )
-            assert callback_called.wait(timeout=5)
-            assert received_scenarios[0] is None
+            assert status == 400
+            assert "error" in json.loads(body)
+            assert not callback_called.wait(timeout=1)
         finally:
             server.stop()
 

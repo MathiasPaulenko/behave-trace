@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest import mock
 
 from behave_trace import attach
@@ -175,3 +176,72 @@ class TestNormalizeNetworkDataEdge:
         result = attach._normalize_network_data(source)
         assert result is not None
         assert result["body"] is None
+
+    def test_selenium_log_entry_dict_request(self) -> None:
+        """driver.get_log('performance') dict entries must parse the inner JSON."""
+        entry = {
+            "level": "INFO",
+            "message": json.dumps(
+                {
+                    "message": {
+                        "method": "Network.requestWillBeSent",
+                        "params": {
+                            "requestId": "1",
+                            "request": {
+                                "method": "GET",
+                                "url": "https://api.example.com/data",
+                                "headers": {"Accept": "application/json"},
+                            },
+                        },
+                    }
+                }
+            ),
+        }
+        result = attach._normalize_network_data(entry)
+        assert result is not None
+        assert result["method"] == "GET"
+        assert result["url"] == "https://api.example.com/data"
+        assert result["headers"] == {"Accept": "application/json"}
+
+    def test_selenium_log_entry_dict_response(self) -> None:
+        """responseReceived entries extract status and response body fields."""
+        entry = {
+            "level": "INFO",
+            "message": json.dumps(
+                {
+                    "message": {
+                        "method": "Network.responseReceived",
+                        "params": {
+                            "requestId": "1",
+                            "response": {
+                                "url": "https://api.example.com/data",
+                                "status": 200,
+                                "headers": {"Content-Type": "application/json"},
+                            },
+                        },
+                    }
+                }
+            ),
+        }
+        result = attach._normalize_network_data(entry)
+        assert result is not None
+        assert result["status"] == 200
+        assert result["url"] == "https://api.example.com/data"
+        assert result["response"]["status"] == 200
+
+    def test_dict_with_plain_string_message_uses_generic_branch(self) -> None:
+        """A dict whose 'message' is not CDP JSON keeps generic extraction."""
+        result = attach._normalize_network_data(
+            {"method": "POST", "url": "http://x", "message": "hello"}
+        )
+        assert result is not None
+        assert result["method"] == "POST"
+        assert result["url"] == "http://x"
+
+    def test_dict_with_unrelated_json_message_uses_generic_branch(self) -> None:
+        """JSON 'message' without Network params falls back to generic dict."""
+        result = attach._normalize_network_data(
+            {"method": "PUT", "url": "http://y", "message": '{"other": true}'}
+        )
+        assert result is not None
+        assert result["method"] == "PUT"

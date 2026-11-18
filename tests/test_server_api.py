@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import gzip
 import json
+import queue
 import socket
 import threading
 import time
@@ -575,6 +576,36 @@ class TestProgressEdgeCases:
             with urllib.request.urlopen(req) as resp:
                 result = json.loads(resp.read())
             assert result["status"] == "ok"
+        finally:
+            server.stop()
+
+    def _post_progress(self, port: int, payload: dict) -> None:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/progress",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req) as resp:
+            assert json.loads(resp.read())["status"] == "ok"
+
+    def test_progress_event_type_is_whitelisted(self) -> None:
+        """A forged 'event' must not spoof other SSE event types."""
+        server, port = _start_server()
+        try:
+            q: queue.Queue = queue.Queue()
+            server._state.sse_clients.append(q)
+            self._post_progress(port, {"event": "trace_updated", "completed": 1, "total": 2})
+            assert q.get_nowait()["type"] == "scenario_completed"
+        finally:
+            server.stop()
+
+    def test_progress_negative_counts_clamped(self) -> None:
+        """Negative completed/total values must not reach clients."""
+        server, port = _start_server()
+        try:
+            self._post_progress(port, {"completed": -5, "total": -10})
+            assert server._state.progress == {"completed": 0, "total": 0}
         finally:
             server.stop()
 
