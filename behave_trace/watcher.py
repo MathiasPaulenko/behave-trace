@@ -53,8 +53,10 @@ class FileWatcher:
             self._start_watchdog()
         except ImportError:
             self._start_polling()
-        except OSError:
-            # watchdog fails on non-existent directories
+        except Exception:
+            # watchdog raises OSError on most platforms for non-existent
+            # directories, but queue.Empty on Windows — any startup failure
+            # must degrade to polling rather than crash the caller.
             self._start_polling()
 
     def stop(self) -> None:
@@ -90,7 +92,7 @@ class FileWatcher:
 
         watcher = self
 
-        class Handler(FileSystemEventHandler):  # type: ignore[misc]
+        class Handler(FileSystemEventHandler):  # type: ignore[misc, unused-ignore]
             def on_modified(self, event: object) -> None:
                 if getattr(event, "is_directory", False):
                     return

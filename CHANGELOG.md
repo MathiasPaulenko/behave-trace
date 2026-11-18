@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - POST requests with `Transfer-Encoding: chunked` are rejected with 411 —
   the undecoded body would otherwise poison the next request on the same
   keep-alive connection.
+- `FileWatcher.start()` now falls back to polling on any watchdog startup
+  failure — on Windows a missing directory raised `queue.Empty` instead of
+  `OSError` and crashed the watcher.
+- `Serializer.save()` retries `os.replace` briefly when Windows file
+  indexing or antivirus transiently denies the rename.
 
 ## 1.4.1 — 2026-11-18
 

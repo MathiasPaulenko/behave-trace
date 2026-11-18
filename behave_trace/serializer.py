@@ -16,6 +16,7 @@ import math
 import os
 import tempfile
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -130,7 +131,16 @@ class Serializer:
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
                     f.write(text)
-                os.replace(tmp_path, p)
+                # Windows AV/indexers can briefly hold the destination and
+                # make os.replace fail with Access Denied — retry briefly.
+                for attempt in range(5):
+                    try:
+                        os.replace(tmp_path, p)
+                        break
+                    except PermissionError:
+                        if attempt == 4:
+                            raise
+                        time.sleep(0.02 * (attempt + 1))
             finally:
                 tmp_path.unlink(missing_ok=True)
         return p

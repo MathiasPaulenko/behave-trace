@@ -701,16 +701,20 @@ class TestWatcherCallbackCrash:
         watcher = FileWatcher(tmp_path, callback, debounce_ms=50)
         watcher.start()
 
-        # Trigger a file change
-        (tmp_path / "test.feature").write_text("Feature: test")
-
         import time
 
-        time.sleep(0.3)
+        # Trigger a file change — wait on a deadline because the watchdog
+        # backend can take >300ms to start delivering events on slow CI.
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and call_count == 0:
+            (tmp_path / "test.feature").write_text("Feature: test")
+            time.sleep(0.1)
 
         # Watcher should still be alive — trigger another change
         (tmp_path / "test.feature").write_text("Feature: updated")
-        time.sleep(0.3)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and call_count == 0:
+            time.sleep(0.1)
 
         watcher.stop()
 
