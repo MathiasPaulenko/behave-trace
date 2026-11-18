@@ -143,6 +143,7 @@ function traceViewer() {
                     }
                     this._startProgressTimer();
                     break;
+                case 'scenario_started':
                 case 'scenario_completed':
                     this.progressCompleted = event.completed || 0;
                     this.progressTotal = event.total || 0;
@@ -555,14 +556,17 @@ function traceViewer() {
         // ─── Highlight matched text ───
         highlightText(text) {
             if (!text) return '';
-            // Escape HTML to prevent XSS
-            const escapedText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
-            if (!this.searchQuery) return escapedText;
-            const q = this.searchQuery.trim();
-            if (!q) return escapedText;
+            const q = (this.searchQuery || '').trim();
+            if (!q) return this._escapeHtml(text);
+            // Highlight on the RAW text with sentinel markers, then escape —
+            // regex on escaped text would corrupt entities (&amp;, &lt;) when
+            // the query contains letters like "amp" or "lt".
             const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const regex = new RegExp('(' + escaped + ')', 'gi');
-            return escapedText.replace(regex, '<mark>$1</mark>');
+            const marked = String(text).replace(regex, '\u0001$1\u0002');
+            return this._escapeHtml(marked)
+                .replace(/\u0001/g, '<mark>')
+                .replace(/\u0002/g, '</mark>');
         },
 
         // ─── Tree interactions ───
