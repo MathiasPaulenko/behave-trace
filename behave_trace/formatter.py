@@ -89,6 +89,10 @@ class TraceFormatter(Formatter):  # type: ignore[misc]
     def close(self) -> None:
         from .serializer import Serializer
 
+        # Behave may skip eof() on aborted runs (interrupts, hook crashes);
+        # flush the open scenario/feature so the trace isn't left untested.
+        if self._behave_scenario is not None or self._behave_feature is not None:
+            self.eof()
         trace = self._collector.finalize()
         try:
             Serializer.save(trace, self._output_path)

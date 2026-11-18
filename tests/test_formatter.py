@@ -266,6 +266,37 @@ class TestClose:
 
         assert (tmp_path / "trace.json").exists()
 
+    def test_close_without_eof_flushes_lifecycle(self, tmp_path: Path) -> None:
+        """Aborted runs skip eof() — close() must still finalize the trace."""
+        f = make_formatter(str(tmp_path / "trace.json"))
+        scen = StubScenario(name="S", status="failed")
+        scen.all_steps = [StubStep(status="failed"), StubStep(status="skipped")]
+        f.feature(StubFeature(name="F", status="failed", duration=1.0))
+        f.scenario(scen)
+        f.result(scen.all_steps[0])  # only the failed step reports
+        # No eof(): behave aborted mid-suite
+        f.close()
+
+        trace = f._collector.trace
+        feature = trace.features[0]
+        assert feature.status == "failed"
+        assert feature.scenarios[0].status == "failed"
+        steps = feature.scenarios[0].steps
+        assert [s.status for s in steps] == ["failed", "skipped"]
+
+    def test_close_after_eof_is_idempotent(self, tmp_path: Path) -> None:
+        """close() after a normal eof() must not double-flush steps."""
+        f = make_formatter(str(tmp_path / "trace.json"))
+        scen = StubScenario(name="S", status="passed")
+        scen.all_steps = [StubStep(status="passed")]
+        f.feature(StubFeature(name="F", status="passed"))
+        f.scenario(scen)
+        f.result(scen.all_steps[0])
+        f.eof()
+        f.close()
+
+        assert len(f._collector.trace.features[0].scenarios[0].steps) == 1
+
     def test_multi_feature_finalizes_previous_feature(self) -> None:
         """Regression: feature() must finalize the previous feature when a
         new feature starts. Without this, multi-feature runs would leave all
