@@ -76,7 +76,7 @@ behave-trace --version
 ```
 
 ```text
-1.4.0
+1.4.1
 ```
 
 ## `python -m behave_trace`

@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 1.4.1 — 2026-11-18
+
+### Fixed
+
+- Behave statuses outside the canonical set (`error`, `hook_error`,
+  `cleanup_error`, `pending`, `executing`, `untested_undefined`, ...) no longer
+  collapse into `untested`: errors map to `failed`, `executing` to `running`.
+- Steps that Behave marks `skipped` without emitting a `result()` event
+  (everything after a failed step) are now flushed into the trace at scenario
+  end instead of silently disappearing.
+- Duplicate `result()` events for the same step object are deduplicated, and
+  per-scenario step state resets between scenarios.
+- `Trace.overall_status` reports `running` while any feature is still running
+  (running now outranks `passed` for mid-run traces).
+- Git remote URLs with embedded credentials (`https://user:token@host/...`)
+  are sanitized before being stored in trace environment info.
+- File changes that arrive while a UI-triggered re-run is executing are no
+  longer dropped: the rerun callback drains the pending-run queue and runs
+  once more, matching watch-mode behavior.
+- `Serializer.save` writes atomically via a unique temp file + rename, and
+  concurrent saves to the same path are serialized (fixes a Windows
+  `os.replace` race).
+- `attach_network` now parses Selenium CDP performance log entries
+  (`driver.get_log("performance")`), extracting the `Network.*` event from the
+  nested `message` JSON.
+- `format_duration` no longer raises on non-numeric input; it returns `"0ms"`.
+- Search highlighting no longer corrupts escaped HTML entities (`&amp;`,
+  `&lt;`) when the query matches inside them — marking happens on raw text
+  before escaping.
+- The viewer now reacts to `scenario_started` SSE events, so the progress
+  total updates live instead of only when scenarios complete.
+- The `/api/progress` endpoint whitelists SSE event types and clamps negative
+  counters.
+- Watchdog moves and deletions now trigger re-runs (editors that save via
+  rename were ignored), and the polling fallback detects deletions.
+
+### Changed
+
+- `behave-trace run` writes its trace to a per-process temp file
+  (`behave-trace-<pid>.json`) instead of a fixed name — no stale traces or
+  collisions between concurrent instances.
+- `/api/rerun` validates the payload (`filter` enum, non-empty scenario list)
+  and returns 400 on misuse instead of running everything.
+- POST endpoints check the `Origin` header (localhost only), request bodies
+  are size-capped, and `/api/source` enforces an extension allowlist and a
+  file size limit.
+- Scenario names passed to behave's `--name` are now regex-escaped *and*
+  anchored, so "Foo" no longer also matches "Foo bar".
+- Exported `STATUS_*` constants, `ALL_STATUSES` and `normalize_status` from
+  the package root, matching the already-public `normalize_level`.
+
 ## 1.4.0 — 2026-10-05
 
 ### Fixed
