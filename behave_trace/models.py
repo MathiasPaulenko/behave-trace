@@ -32,8 +32,31 @@ ALL_STATUSES = (
 )
 
 
+# Behave Status enum values that have no direct counterpart in our set,
+# mapped following Behave's own semantics (``Status.is_error`` → failed,
+# ``Status.is_passed`` → passed, pending/unimplemented → undefined).
+_STATUS_ALIASES = {
+    "executing": STATUS_RUNNING,
+    "error": STATUS_FAILED,
+    "hook_error": STATUS_FAILED,
+    "cleanup_error": STATUS_FAILED,
+    "pending": STATUS_FAILED,
+    "pending_warn": STATUS_PASSED,
+    "xfailed": STATUS_PASSED,
+    "xpassed": STATUS_PASSED,
+    "untested_undefined": STATUS_UNDEFINED,
+    "untested_pending": STATUS_UNDEFINED,
+}
+
+
 def normalize_status(value: Any) -> str:
-    """Normalize a Behave status to a canonical lowercase string."""
+    """Normalize a Behave status to a canonical lowercase string.
+
+    Behave's ``Status`` enum has more values than this library exposes
+    (``error``, ``hook_error``, ``pending``, ``executing``, ...). They are
+    mapped via :data:`_STATUS_ALIASES` so failures never collapse into
+    ``untested``.
+    """
     if value is None:
         return STATUS_UNTESTED
     name = getattr(value, "name", None)
@@ -41,7 +64,7 @@ def normalize_status(value: Any) -> str:
     name = name.lower().strip()
     if name in ALL_STATUSES:
         return name
-    return STATUS_UNTESTED
+    return _STATUS_ALIASES.get(name, STATUS_UNTESTED)
 
 
 # ---------------------------------------------------------------------------
@@ -399,6 +422,9 @@ class Trace:
             return STATUS_FAILED
         if any(s == STATUS_UNDEFINED for s in statuses):
             return STATUS_UNDEFINED
+        # running outranks passed: a mid-run trace must not read as finished.
+        if any(s == STATUS_RUNNING for s in statuses):
+            return STATUS_RUNNING
         if any(s == STATUS_PASSED for s in statuses):
             return STATUS_PASSED
         if statuses and all(s == STATUS_SKIPPED for s in statuses):

@@ -82,6 +82,21 @@ def _safe_attr_str(value: Any) -> str:
     return safe_str(value)
 
 
+def _sanitize_git_remote(url: str) -> str:
+    """Strip credentials embedded in a git remote URL.
+
+    Remotes like ``https://user:token@host/repo.git`` would otherwise leak
+    the token into every trace file. SCP-style URLs (``git@host:path``)
+    carry only a username and are kept unchanged.
+    """
+    if "://" in url:
+        scheme, rest = url.split("://", 1)
+        if "@" in rest:
+            rest = rest.split("@", 1)[1]
+        return f"{scheme}://{rest}"
+    return url
+
+
 class Collector:
     """Builds a :class:`Trace` from formatter events.
 
@@ -101,6 +116,10 @@ class Collector:
         self._bg_step_index = 0
         self._started_scenarios = 0
         self._completed_scenarios = 0
+        # Step objects already recorded for the current scenario. The list
+        # pins references so ids in the set can't be recycled by the GC.
+        self._seen_step_ids: set[int] = set()
+        self._seen_step_refs: list[Any] = []
         self._progress_url = os.environ.get("BEHAVE_TRACE_SERVER_URL")
 
     # ------------------------------------------------------------------
@@ -170,6 +189,9 @@ class Collector:
                     info[key] = result.stdout.strip()
         except Exception:
             pass
+        remote = info.get("remote")
+        if remote:
+            info["remote"] = _sanitize_git_remote(remote)
         return info
 
     # ------------------------------------------------------------------
@@ -236,6 +258,8 @@ class Collector:
             # per scenario, so their statuses must not leak between scenarios.
             scenario.background = copy.deepcopy(self._current_feature.background)
         self._bg_step_index = 0
+        self._seen_step_ids.clear()
+        self._seen_step_refs.clear()
         self._current_scenario = scenario
         if self._current_feature is not None:
             self._current_feature.scenarios.append(scenario)
@@ -247,6 +271,7 @@ class Collector:
         """Finalize the current scenario."""
         if self._current_scenario is None:
             return
+        self._flush_missing_steps(behave_scenario)
         self._current_scenario.status = normalize_status(getattr(behave_scenario, "status", None))
         self._current_scenario.duration = safe_float(
             getattr(behave_scenario, "duration", 0.0) or 0.0
@@ -307,6 +332,10 @@ class Collector:
             self._pending_artifacts.clear()
             self._pending_logs.clear()
             return None
+        if id(behave_step) in self._seen_step_ids:
+            return None  # same step object reported twice
+        self._seen_step_ids.add(id(behave_step))
+        self._seen_step_refs.append(behave_step)
         step = self._make_step(behave_step)
         step.artifacts.extend(self._pending_artifacts)
         step.logs.extend(self._pending_logs)
@@ -325,6 +354,28 @@ class Collector:
                 background.steps[self._bg_step_index] = step
             self._bg_step_index += 1
         return step
+
+    def _flush_missing_steps(self, behave_scenario: Any) -> None:
+        """Record steps that never produced a ``result()`` event.
+
+        Behave marks steps ``skipped`` without emitting ``result()`` when a
+        scenario aborts (after a failure, hook error, or tag filtering).
+        Without this pass the trace silently drops those steps.
+        """
+        try:
+            all_steps = _safe_iterable(getattr(behave_scenario, "all_steps", None))
+        except Exception:
+            all_steps = []
+        if not all_steps:
+            return
+        try:
+            bg_ids = {
+                id(s) for s in _safe_iterable(getattr(behave_scenario, "background_steps", None))
+            }
+        except Exception:
+            bg_ids = set()
+        for behave_step in all_steps:
+            self.on_step(behave_step, in_background=id(behave_step) in bg_ids)
 
     def _make_step(self, behave_step: Any) -> Step:
         """Convert a Behave step object into a Step model."""

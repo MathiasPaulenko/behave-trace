@@ -43,17 +43,24 @@ def format_duration(seconds: float | None) -> str:
         ``225``    → ``"3m 45s"``
         ``3725``   → ``"1h 2m 5s"``
     """
-    if seconds is None or seconds <= 0 or math.isnan(seconds) or math.isinf(seconds):
+    try:
+        value = float(seconds)  # type: ignore[arg-type]
+    except (TypeError, ValueError, OverflowError):
         return "0ms"
-    if seconds < 1:
-        return f"{round(seconds * 1000)}ms"
-    if seconds < 60:
+    if value <= 0 or math.isnan(value) or math.isinf(value):
+        return "0ms"
+    seconds = value
+    ms = round(seconds * 1000)
+    if ms < 1000:
+        return f"{ms}ms"
+    if seconds < 59.995:  # below this it can't round up to "60.00s"
         return f"{seconds:.2f}s"
-    if seconds < 3600:
-        m = int(seconds // 60)
-        s = int(seconds % 60)
+    # Rounded whole seconds keep rollover boundaries clean
+    # (59.999s → "1m 0s", 3599.9s → "1h 0m 0s").
+    total = int(round(seconds))
+    if total < 3600:
+        m, s = divmod(total, 60)
         return f"{m}m {s}s"
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
     return f"{h}h {m}m {s}s"
